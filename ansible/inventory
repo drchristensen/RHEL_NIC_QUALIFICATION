@@ -1,10 +1,10 @@
 localhost-py3 ansible_host=localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
 
 [trex]
-10.19.15.7
+9.114.224.20
 
 [dut]
-netqe4.knqe.lab.eng.bos.redhat.com
+9.114.224.51
 
 [NorthAmerica:children]
 trex

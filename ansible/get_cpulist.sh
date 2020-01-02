@@ -1,5 +1,27 @@
 #!/bin/bash
 
+# Uncomment to enable debugging
+# set -xv
+
+# Converts a range of CPUs into an array.
+# For example, "0-3,7" becomes "0,1,2,3,7".
+# Requires two arguments:
+# $1 - The string to be expanded
+# $2 - The list of CPUs being returned
+function parse_range {
+	arr=()
+  IFS=', ' read -a ranges <<< $1
+  for range in "${ranges[@]}"; do
+    IFS=- read start end <<< "$range"
+    [ -z "$start" ] && continue
+    [ -z "$end" ] && end=$start
+    for ((i = start; i <= end; i++)); do
+			arr+=($i)
+    done
+  done
+  eval $2=$(IFS=,;printf "%s" "${arr[*]}")
+}
+
 dev_pci=$1
 func_name=$2
 
@@ -19,7 +41,7 @@ then
 fi
 
 nofunc=1
-for name in dut_isolated_cpus dut_dpdk_pmd_mask dut_pmd_rxq_affinity vcpu_1 vcpu_2 vcpu_3 vcpu_4 dut_dpdk_lcore_mask vcpu_emulator
+for name in dut_isolated_cpus dut_dpdk_pmd_mask dut_pmd_rxq_affinity vcpu_1 vcpu_2 vcpu_3 vcpu_4 vcpu_5 vcpu_6 vcpu_7 vcpu_8 dut_dpdk_lcore_mask vcpu_str vcpu_emulator vcpu_count
 do
 	if [ $func_name == $name ]
 	then
@@ -33,54 +55,60 @@ then
 	exit 1
 fi
 
-dev_numa_node=$(lspci  -s $dev_pci -v | grep -o "NUMA node [0-9]*" | awk '{print $3}')
-numa_cpulist=$(lscpu | grep "NUMA node${dev_numa_node}" | awk '{print $4}')
-first_ht_pair=$(cat /sys/devices/system/cpu/cpu${dev_numa_node}/topology/thread_siblings_list | tr , " ")
-dut_isolated_cpus=$numa_cpulist
+threads_per_core=$(lscpu | grep "Thread(s) per core:" | awk '{print $4}')
+# cores_per_socket=$(lscpu | grep "Core(s) per socket:" | awk '{print $4}')
 
-for cpu in $first_ht_pair
-do
+# Calculate the number of CPUs required for the test.  x86 systems typically
+# support two threads per core while Power systems can support between two and
+# eight threads per core.
+required_numa_count=2
+let required_vcpu_count="2 * $threads_per_core"
+let required_cpu_count="1 + $threads_per_core + $required_vcpu_count"
+
+# Identify the NUMA node associated with the given PCI device
+# along with another NUMA node not associated with the device
+dev_numa_node1=$(lspci  -s $dev_pci -v | grep -o "NUMA node [0-9]*" | awk '{print $3}')
+dev_numa_node2=$(lscpu | grep "NUMA node.*CPU" | grep -v "NUMA node${dev_numa_node1}" | head -n 1 | sed -E 's/^NUMA node([0-9]*).*/\1/g')
+
+# Obtain a list of CPUs associated with each NUMA node,
+parse_range $(lscpu | grep "NUMA node${dev_numa_node1}" | awk '{print $4}') numa_cpu_list1
+parse_range $(lscpu | grep "NUMA node${dev_numa_node2}" | awk '{print $4}') numa_cpu_list2
+
+# Gather a list of CPU siblings for the first CPU of the given NUMA node
+num=$(echo $numa_cpu_list1 | awk -F, '{print $1}')
+parse_range $(cat /sys/devices/system/cpu/cpu${num}/topology/thread_siblings_list) host_cpus_list1
+num=$(echo $numa_cpu_list2 | awk -F, '{print $1}')
+parse_range $(cat /sys/devices/system/cpu/cpu${num}/topology/thread_siblings_list) host_cpus_list2
+
+# Reserve the first CPU and its siblings for host OS use
+dut_isolated_cpus=$numa_cpu_list1
+for cpu in ${host_cpus_list1//,/ }; do
 	dut_isolated_cpus=$(echo $dut_isolated_cpus | sed "s/^$cpu,//g" | sed "s/,$cpu,/,/g")
 done
-pmd_cpu_0=$(echo $dut_isolated_cpus | awk -F, '{print $1}')
-pmd_cpu_full=$(cat /sys/devices/system/cpu/cpu${pmd_cpu_0}/topology/thread_siblings_list | tr , " ")
-pmd_cpu_1=$(echo $pmd_cpu_full | awk '{print $2}')
 
+# Pick the first free CPU in the DUT isolated list, along with its thread siblings, and
+# assign it to the OVS/DPDK PMD running on the DUT
+num=$(echo $dut_isolated_cpus | awk -F, '{print $1}')
+parse_range $(cat /sys/devices/system/cpu/cpu${num}/topology/thread_siblings_list) pmd_siblings_list
+
+# Create another list of the remaining, isolated CPUs
 remaining_cpus=$dut_isolated_cpus
-
-for cpu in $pmd_cpu_full
-do
+for cpu in ${pmd_siblings_list//,/ }; do
 	remaining_cpus=$(echo $remaining_cpus | sed "s/^$cpu,//g" | sed "s/,$cpu,/,/g")
 done
 
-num_isolated_cpu=$(echo $dut_isolated_cpus | awk -F, '{print NF}')
-# two cpus for pmd_mask, 4 cpus for v_cpu, 1 cpu for vcpu_emulator
-if [ $num_isolated_cpu -lt 7 ]
-then
+# Count the number of DUT isolated CPUs and make sure there are enough
+# to assign for all requirements
+dut_isolated_cpus_count=$(echo $dut_isolated_cpus | awk -F, '{print NF}')
+if [ $dut_isolated_cpus_count -lt $required_cpu_count ]; then
 	exit 1
 fi
 
-nu_numa_node=$(lscpu | grep "NUMA node(s)" | awk '{print $3}')
-# need at least two numa node
-if [ $nu_numa_node -lt 2 ]
-then
+# Count the number of NUMA nodes and make sure there are enough to run the test
+numa_node_count=$(lscpu | grep "NUMA node(s)" | awk '{print $3}')
+if [ $numa_node_count -lt $required_numa_count ]; then
 	exit 1
 fi
-
-pmd_mask()
-{
-	cpus=$1
-	read -a arr <<<$cpus
-	foo="'p/x "
-	for i in "${arr[@]}"
-	do
-		foo="$foo 1ULL<<$i |"
-	done
-	foo=`echo $foo | rev | cut -c 2- | rev`
-	foo="echo $foo ' | gdb"
-	eval "${foo}" >mask.txt
-	cat mask.txt | awk /=/ | awk '{print $4}'
-}
 
 dut_isolated_cpus()
 {
@@ -89,12 +117,30 @@ dut_isolated_cpus()
 
 dut_dpdk_pmd_mask()
 {
-	pmd_mask "$pmd_cpu_full"
+	hex_string=""
+	for cpu in ${pmd_siblings_list//,/ }; do
+		hex_string="${hex_string}1<<${cpu}|"
+	done
+	hex_string="${hex_string}0"
+	# ToDo: Need to handle python2?
+	echo `python3 -c "print(hex($hex_string))"`
 }
 
 dut_pmd_rxq_affinity()
 {
-	echo "0:$pmd_cpu_0,1:$pmd_cpu_1"
+	res=$(i=0; for t in ${pmd_siblings_list//,/ }; do printf "${i}:${t},"; let i++; done | sed 's/,$//')
+	echo $res
+}
+
+vcpu_count()
+{
+	echo $required_vcpu_count
+}
+
+vcpu_str()
+{
+	res=$(i=1; for t in ${remaining_cpus//,/ }; do printf "${t},"; if [ $i -ge $required_vcpu_count ]; then break; fi; let i++; done | sed 's/,$//')
+	echo $res
 }
 
 vcpu_1()
@@ -117,16 +163,62 @@ vcpu_4()
 	echo $remaining_cpus | awk -F, '{print $4}'
 }
 
+vcpu_5()
+{
+	if [ $threads_per_core -eq 4 ]; then
+		echo $remaining_cpus | awk -F, '{print $5}'
+	else
+		exit 1
+	fi
+}
+
+vcpu_6()
+{
+	if [ $threads_per_core -eq 4 ]; then
+		echo $remaining_cpus | awk -F, '{print $6}'
+	else
+		exit 1
+	fi
+}
+
+vcpu_7()
+{
+	if [ $threads_per_core -eq 4 ]; then
+		echo $remaining_cpus | awk -F, '{print $7}'
+	else
+		exit 1
+	fi
+}
+
+vcpu_8()
+{
+	if [ $threads_per_core -eq 4 ]; then
+		echo $remaining_cpus | awk -F, '{print $8}'
+	else
+		exit 1
+	fi
+}
+
 vcpu_emulator()
 {
-	echo $remaining_cpus | awk -F, '{print $5}'
+	if [ $threads_per_core -eq 2 ]; then
+		echo $remaining_cpus | awk -F, '{print $5}'
+	elif [ $threads_per_core -eq 4 ]; then
+		echo $remaining_cpus | awk -F, '{print $9}'
+	else
+		exit 1
+	fi
 }
 
 dut_dpdk_lcore_mask()
 {
-	cpu_on_anothernuma=$(lscpu | grep "NUMA node.*CPU" | grep -v "NUMA node${dev_numa_node}" | head -n 1 | awk '{print $4}')
-	cpu_dpdk_lcore=$(echo $cpu_on_anothernuma | awk -F, '{print $2}')
-	pmd_mask "$cpu_dpdk_lcore"
+	# Use CPUs on the other NUMA node
+	hex_string=""
+	for cpu in ${host_cpus_list2//,/ }; do
+		hex_string="${hex_string}1<<${cpu}|"
+	done
+	hex_string="${hex_string}0"
+	echo `python3 -c "print(hex($hex_string))"`
 }
 
 $func_name

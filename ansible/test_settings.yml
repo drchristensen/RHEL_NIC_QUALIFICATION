@@ -1,5 +1,5 @@
 # Debug mode (Will print out extra debug information. Only enable if asked to by RedHat)
-redhat_debug_mode: False
+redhat_debug_mode: True
 
 # Red Hat subscription username, password, pool_id used for accessing Red Hat repositories.  If you do not have one
 # please ask your Red Hat EPM to assist.
@@ -18,53 +18,95 @@ qe_subscription_command:
 trex_version: v2.53
 
 # T-Rex server NIC names (example eth1, enp68s0f0, etc...)
-trex_interface_1: enp68s0f0
-trex_interface_2: enp68s0f1
+trex_interface_1: ens4f0
+trex_interface_2: ens4f1
 
 # Openvswitch package location. While you can pull this from the fast datapath repository it is recommended to contact
 # your development representative to get the latest version. Then copy this to the DUT and specify its location.
-ovs_rpm_path: "http://download-node-02.eng.bos.redhat.com/brewroot/packages/openvswitch2.11/2.11.0/9.el8fdp/x86_64/openvswitch2.11-2.11.0-9.el8fdp.x86_64.rpm"
+ovs_rpm_path: "http://9.114.224.56/~drc/openvswitch2.11-2.11.0-26.el8.ppc64le.rpm"
 
 # Openvswitch selinux package location. While you can pull this from the fast datapath repository it is recommended to
 # contact your development representative to get the latest version.  Then copy this to the DUT and specify its location.
-ovs_selinux_rpm_path: "http://download-node-02.eng.bos.redhat.com/brewroot/packages/openvswitch-selinux-extra-policy/1.0/11.el8fdp/noarch/openvswitch-selinux-extra-policy-1.0-11.el8fdp.noarch.rpm"
+ovs_selinux_rpm_path: "http://9.114.224.56/~drc/openvswitch-selinux-extra-policy-1.0-19.el8.noarch.rpm"
 
 # DUT server isolated core list
-#dut_isolated_cpus: 1,3,5,7,9,11,13,15
+dut_isolated_cpus: 4-63
 
 # DUT NIC Device names
-dut_interface_1: enp68s0f0
-dut_interface_2: enp68s0f1
+dut_interface_1: enp1s0f0
+dut_interface_2: enp1s0f1
 
-dut_interface_1_pciid: "0000:44:00.0"
-tc_offload_card_type: "Netronome"
+dut_interface_1_pciid: "0000:01:00.0"
+dut_interface_2_pciid: "0000:01:00.1"
+tc_offload_card_type: "Unknown"
 
 # DUT DPDK Driver,  for most devices this will be vfio-pci.  Changes for other cards such as Mellanox may be required.
 # This is the DPDK driver that the card will bind to on the DUT.
-dut_driver: vfio-pci
+dut_driver: none
 
 # DUT DPDK PMD Mask.  PMD mask to set for which cores will be used for PMD threads.
+# DRC - Is this for OVS????
 #dut_dpdk_pmd_mask: 8002
 
 # DUT DPDK L-Core Mask.  Core mask for the logical core,  should not conflict with DPDK PMD mask.  Does not have to align with NUMA of NIC.
-#dut_dpdk_lcore_mask: 40
+dut_dpdk_lcore_mask: 4-63
 
 # DUT PMD RXQ Affinity. The receive queue affinity which will be set on the PMD threads.
-#dut_pmd_rxq_affinity: 0:9,1:15
+# DRC - Should we have two, one for each port on the adapter?
+dut_pmd_rxq_affinity: 0:8,1:9,2:10,3:11,4:12,5:13,6:14,7:15
+# dut_pmd_rxq_affinity: 0:16,1:17,2:18,3:19,4:20,5:21,6:22,7:23
 
 # Path to RHEL guest image for PVP tests.  Please download the image from the red hat website.  See README for more info.
 # This is the location the file is located on the DUT.
 rhel_guest_image_path: /root/rhel-8.0-beta-1-x86_64-kvm.qcow2
 
+# DRC - Do we need to add this for virt-install?
+# CPU architecture
+# dut_cpu_arch: x86
+dut_cpu_arch: ppc64
+
 # CPU model info, needs to be modified to match your DUT cpu type. If an error occurs with virt-install might need to
 # modify this line to a model present in  /usr/share/libvirt/cpu_map.xml
-dut_cpu_model: SandyBridge
+#dut_cpu_model: SandyBridge
 #dut_cpu_model: Haswell-noTSX
+dut_cpu_model: POWER9
 
+# DRC - vcpu's are 0 based.  Why does this start at 1?  Is there a limit on the number of vcpu's?
 # Virtual CPU list (Should be in isolated list), emulator vcpu can be non isolated.  Use cores that will not clash with DPDK core mask.
-#vcpu_1: 1
-#vcpu_2: 3
-#vcpu_3: 5
-#vcpu_4: 7
-#vcpu_emulator: 2
+vcpu_count: 24
+vcpu_0: 40
+vcpu_1: 41
+vcpu_2: 42
+vcpu_3: 43
+vcpu_4: 44
+vcpu_5: 45
+vcpu_6: 46
+vcpu_7: 47
+vcpu_8: 48
+vcpu_9: 49
+vcpu_10: 50
+vcpu_11: 51
+vcpu_12: 52
+vcpu_13: 53
+vcpu_14: 54
+vcpu_15: 55
+vcpu_16: 56
+vcpu_17: 57
+vcpu_18: 58
+vcpu_19: 59
+vcpu_20: 60
+vcpu_21: 61
+vcpu_22: 62
+vcpu_23: 63
+vcpu_emulator: 3
 
+# Set the hugepage variables for the Linux kernel command-line
+dut_hugepages: 32
+dut_hugepagesz: 1G
+dut_default_hugepagesz: 1G
+
+# x86 based systems typically require "pt", Power based systems should select "none"
+dut_iommu_mode: none
+
+# x86 based systems will require "on", Power based systems don't use this setting
+dut_intel_iommu_mode: on

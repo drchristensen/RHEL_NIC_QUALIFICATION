@@ -1,3 +1,9 @@
+#########################################################
+# ToDo:
+# - Configure to allow running OVS as root on Power
+# - Add IBM repo configuration (i.e. *.repo files)
+# - Does Power really need more CPUs for the VM/OVS?
+########################################################
 - name: T-Rex Setup
   hosts: dut
   vars_files:
@@ -8,19 +14,30 @@
     when: redhat_debug_mode == true
 
 #################################################
-# Check for nic to make sure its seen by kernel #
+# Check that nics are seen by kernel #
 #################################################
 
   - stat: path=/sys/class/net/{{ dut_interface_1 }}
     register: st
   - block:
-    - name: "Checking nic to be seen by kernel"
+    - name: "Checking that first nic is seen by kernel"
       debug:
-        msg: "exiting as nic {{ dut_interface_1 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
+        msg: "exiting as first nic {{ dut_interface_1 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
 
     - meta: end_play
     when: not st.stat.exists
 
+  - stat: path=/sys/class/net/{{ dut_interface_2 }}
+    register: st
+  - block:
+    - name: "Checking that second nic is seen by kernel"
+      debug:
+        msg: "exiting as second nic {{ dut_interface_2 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
+
+    - meta: end_play
+    when: not st.stat.exists
+
+######################################
 ######################################
 # Install repositories on DUT server #
 ######################################
@@ -52,9 +69,11 @@
   - name: Install needed repos stage 8
     yum:
       name: virt-install,virt-manager,wget
+# DRC - Are there any PPC specific files needed here?
   - name: Installing openvswitch packages
     yum:
       name: "{{ ovs_selinux_rpm_path }}, {{ ovs_rpm_path }}"
+# DRC - What about using alternatives?  i.e. sudo alternatives --set python /usr/bin/python3
   - name: Create symbolic link for python3
     file:
       src: "/usr/bin/python3"
@@ -71,7 +90,10 @@
 ####################################################
 
   - name: Modifying selinux params step 1
-    shell: sed -i -e 's/SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+    lineinfile:
+      path: /etc/selinux/config
+      regexp: '^SELINUX='
+      line: 'SELINUX=permissive'
   - name: Modifying selinux params step 2
     shell: setenforce permissive
 
@@ -79,90 +101,97 @@
 # Modify startup parameters for hugepages and iommu #
 #####################################################
 
-  - name: Checking for hugepages in grub step 1 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep hugepages=32"
-    register: hugepages_found1
-    ignore_errors: True
-  - debug:
-      var: hugepages_found
-    when: redhat_debug_mode == true
-  - name: Adding hugepages in grub if needed step 1
-    when: hugepages_found1.rc != 0
+  - name: Check grub defaults file before hugepage/iommu changes
+    stat: path=/etc/default/grub
+    register: grub_before
+  - name: Changing existing hugepages in grub
+    # Hugepages setting should follow hugepagesz setting on the kernel command-line
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1hugepages=32 \2'
-      backrefs: yes
-  - name: Checking for hugepages in grub step 2 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep hugepagesz=1G"
-    register: hugepages_found2
-    ignore_errors: True
-  - debug:
-      var: hugepages_found
-    when: redhat_debug_mode == true
-  - name: Adding hugepages in grub if needed step 2
-    when: hugepages_found2.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bhugepages=)(\d+)([^<]*\"$)'
+      line: '\g<1>{{ dut_hugepages }}\g<3>'
+      backrefs: true
+  - name: Adding new hugepages in grub
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1hugepagesz=1G \2'
-      backrefs: yes
-  - name: Checking for hugepages in grub step 3 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep default_hugepagesz=1G"
-    register: hugepages_found3
-    ignore_errors: True
-  - debug:
-      var: hugepages_found
-    when: redhat_debug_mode == true
-  - name: Adding hugepages in grub if needed step 3
-    when: hugepages_found3.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bhugepages=\d+)[^<]*\"$)'
+      line: '\g<1>hugepages={{ dut_hugepages }} \g<2>'
+      backrefs: true
+  - name: Changing existing hugepagesz in grub
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1default_hugepagesz=1G \2'
-      backrefs: yes
-  - name: Checking for iommu in grub step 1 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep iommu=pt"
-    register: iommu_found1
-    ignore_errors: True
-  - debug:
-      var: iommu_found
-    when: redhat_debug_mode == true
-  - name: Adding iommu in grub if needed step 1
-    when: iommu_found1.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bhugepagesz=)(\d+[gGkKmM])([^<]*\"$)'
+      line: '\g<1>{{ dut_hugepagesz }}\g<3>'
+      backrefs: true
+  - name: Adding new hugepagesz in grub
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1iommu=pt \2'
-      backrefs: yes
-  - name: Checking for iommu in grub step 2 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep intel_iommu=on"
-    register: iommu_found2
-    ignore_errors: True
-  - debug:
-      var: iommu_found
-    when: redhat_debug_mode == true
-  - name: Adding iommu in grub if needed step 2
-    when: iommu_found2.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bhugepagesz=\d+[gGkKmM])[^<]*\"$)'
+      line: '\g<1>hugepagesz={{ dut_hugepagesz }} \g<2>'
+      backrefs: true
+  - name: Changing existing default_hugepagesz in grub
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1intel_iommu=on \2'
-      backrefs: yes
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bdefault_hugepagesz=)(\d+[gGkKmM])([^<]*\"$)'
+      line: '\g<1>{{ dut_default_hugepagesz }}\g<3>'
+      backrefs: true
+  - name: Adding new default_hugepagesz in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bdefault_hugepagesz=\d+[gGkKmM])[^<]*\"$)'
+      line: '\g<1>default_hugepagesz={{ dut_default_hugepagesz }} \g<2>'
+      backrefs: true
+  - name: Changing existing iommu in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\biommu=)([a-zA-Z]+)([^<]*\"$)'
+      line: '\g<1>{{ dut_iommu_mode }}\g<3>'
+      backrefs: true
+    when: dut_iommu_mode != "none"
+  - name: Adding new iommu in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\biommu=[a-zA-Z]+)[^<]*\"$)'
+      line: '\g<1>iommu={{ dut_iommu_mode }} \g<2>'
+      backrefs: true
+    when: dut_iommu_mode != "none"
+  - name: Changing existing intel_iommu in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bntel_iommu=)([a-zA-Z]+)([^<]*\"$)'
+      line: '\g<1>{{ dut_intel_iommu_mode }}\g<3>'
+      backrefs: true
+    # This setting is not applicable to Power systems
+    when: ansible_architecture != "ppc64le"
+  - name: Adding new intel_iommu in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bintel_iommu=[a-zA-Z]+)[^<]*\"$)'
+      line: '\g<1>intel_iommu={{ dut_intel_iommu_mode }} \g<2>'
+      backrefs: true
+    # This setting is not applicable to Power systems
+    when: ansible_architecture != "ppc64le"
+  - name: Check for grub configuration changes (iommu/hugepages)
+    stat: path=/etc/default/grub
+    register: grub_after
   - name: Tweak the kernel for hugepages and iommu step 1
     command: "grub2-editenv - unset kernelopts"
-    when: iommu_found1.rc != 0 or iommu_found2.rc != 0 or hugepages_found1.rc != 0 or hugepages_found2.rc != 0 or hugepages_found3.rc != 0
+    when: grub_before.stat.checksum != grub_after.stat.checksum
   - name: Tweak the kernel for hugepages and iommu step 2
     command: "grub2-mkconfig -o /boot/grub2/grub.cfg"
-    when: iommu_found1.rc != 0 or iommu_found2.rc != 0 or hugepages_found1.rc != 0 or hugepages_found2.rc != 0 or hugepages_found3.rc != 0
+    when: grub_before.stat.checksum != grub_after.stat.checksum
     tags: ["grub"]
 
 #########################
 # Setup libvirt service #
 #########################
 
+# DRC - Should we add a check to change an existing value?
   - name: Set user for libvirt to hugetlbfs
-    shell: sed -i -e 's/#group = "root"/group = "hugetlbfs"/' /etc/libvirt/qemu.conf
+    lineinfile:
+      path: /etc/libvirt/qemu.conf
+      regexp: '^#group = "root"'
+      line: 'group = "hugetlbfs"'
   - name: Enable service libvirtd.service
     service:
       name: libvirtd.service
@@ -183,63 +212,92 @@
   - name: Changing perm of "/root/get_cpu_list.sh", adding "+x"
     file: dest=/root/get_cpulist.sh mode=a+x
   - name: check cpu requirement
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} dut_isolated_cpus
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} dut_isolated_cpus
     register: cpu_meet
   - block:
       - debug:
-          msg: cpu list can't meet the test requirement,exit the script
+          msg: cpu list can't meet the test requirement, exit the script
       - meta: end_play
     when: cpu_meet.rc != 0
   - name: Get dut_isolated_cpus
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} dut_isolated_cpus
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} dut_isolated_cpus
     register: dut_isolated_cpus
   - debug:
       var: dut_isolated_cpus
     when: redhat_debug_mode == true
   - name: Get dut_dpdk_pmd_mask
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} dut_dpdk_pmd_mask
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} dut_dpdk_pmd_mask
     register: dut_dpdk_pmd_mask
   - debug:
       var: dut_dpdk_pmd_mask
     when: redhat_debug_mode == true
   - name: Get dut_pmd_rxq_affinity
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} dut_pmd_rxq_affinity
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} dut_pmd_rxq_affinity
     register: dut_pmd_rxq_affinity
   - debug:
       var: dut_pmd_rxq_affinity
     when: redhat_debug_mode == true
   - name: Get vcpu_1
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_1
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_1
     register: vcpu_1
+    when: ansible_architecture != "ppc64le"
   - debug:
       var: vcpu_1
     when: redhat_debug_mode == true
   - name: Get vcpu_2
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_2
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_2
     register: vcpu_2
   - debug:
       var: vcpu_2
     when: redhat_debug_mode == true
   - name: Get vcpu_3
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_3
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_3
     register: vcpu_3
   - debug:
       var: vcpu_3
     when: redhat_debug_mode == true
   - name: Get vcpu_4
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_4
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_4
     register: vcpu_4
   - debug:
       var: vcpu_4
     when: redhat_debug_mode == true
+  - name: Get vcpu_5
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_5
+    register: vcpu_5
+    when: ansible_architecture == "ppc64le"
+  - debug:
+      var: vcpu_5
+    when: redhat_debug_mode == true
+  - name: Get vcpu_6
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_6
+    register: vcpu_6
+    when: ansible_architecture == "ppc64le"
+  - debug:
+      var: vcpu_6
+    when: redhat_debug_mode == true
+  - name: Get vcpu_7
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_7
+    register: vcpu_7
+    when: ansible_architecture == "ppc64le"
+  - debug:
+      var: vcpu_7
+    when: redhat_debug_mode == true
+  - name: Get vcpu_8
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_8
+    register: vcpu_8
+    when: ansible_architecture == "ppc64le"
+  - debug:
+      var: vcpu_8
+    when: redhat_debug_mode == true
   - name: Get dut_dpdk_lcore_mask
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} dut_dpdk_lcore_mask
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} dut_dpdk_lcore_mask
     register: dut_dpdk_lcore_mask
   - debug:
       var: dut_dpdk_lcore_mask
     when: redhat_debug_mode == true
   - name: Get vcpu_emulator
-    shell: ./get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_emulator
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_emulator
     register: vcpu_emulator
   - debug:
       var: vcpu_emulator
@@ -250,34 +308,50 @@
 # Tune isolated cpus based on t-rex config #
 ############################################
 
+  - name: Check cpu-partitioning-variables.conf file before isolcpus changes
+    stat: path=/etc/tuned/cpu-partitioning-variables.conf
+    register: tuned_before
+  - name: Adding/modifying isolcpus in cpu-partitioning-variables.conf
+    # Changes the value if present, appends the value if missing
+    lineinfile:
+      path: /etc/tuned/cpu-partitioning-variables.conf
+      regexp: '^isolated_cores=.*$'
+      line: 'isolated_cores={{ dut_isolated_cpus.stdout }}'
+  - name: Check cpu-partitioning-variables.conf file for configuration changes
+    stat: path=/etc/tuned/cpu-partitioning-variables.conf
+    register: tuned_after
+ 
   - name: Enable service tuned
     service:
       name: tuned
       enabled: yes
+  - name: Selecting tuned cpu-partitioning profile
+    shell: tuned-adm profile cpu-partitioning
   - name: Start service tuned, if not started
     service:
       name: tuned
       state: started
-  - name: Checking for isolcpus in grub (Fatal errors are normal here)
-    shell: cat /etc/tuned/cpu-partitioning-variables.conf | grep {{ dut_isolated_cpus.stdout }}
-    ignore_errors: True
-    register: isolcpus_needed
-  - name: Adding isolated cpus to tuned
-    shell: echo isolated_cores={{ dut_isolated_cpus.stdout }} >> /etc/tuned/cpu-partitioning-variables.conf
-    when: isolcpus_needed.rc != 0
-  - name: Starting cpu-partitioning tuned profile
-    shell: tuned-adm profile cpu-partitioning
-  - name: Checking for isolcpus in grub (Fatal errors are normal here)
-    shell: cat /etc/default/grub | grep {{ dut_isolated_cpus.stdout }}
-    ignore_errors: True
-    register: isolcpus_needed
-  - name: Adding isolated cpus to grub
-    shell: sed -i -e 's/GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="isolcpus={{ dut_isolated_cpus.stdout }} /'  /etc/default/grub
-    when: isolcpus_needed.rc != 0
+
+  - name: Changing existing isolcpus in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bisolcpus=)([0-9,-]+)([^<]*\"$)'
+      line: '\g<1>{{ dut_isolated_cpus.stdout }}\g<3>'
+      backrefs: true
+  - name: Adding new isolcpus in grub (if not already present)
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bisolcpus=[0-9,-]+)[^<]*\"$)'
+      line: '\g<1>isolcpus={{ dut_isolated_cpus.stdout }} \g<2>'
+      backrefs: true
+  - name: Check for grub configuration changes (isolated CPUs)
+    stat: path=/etc/default/grub
+    register: grub_after
+
   - name: Tweak the kernel isolated list
     command: "grub2-mkconfig -o /boot/grub2/grub.cfg"
+    when: grub_before.stat.checksum != grub_after.stat.checksum or tuned_before.stat.checksum != tuned_after.stat.checksum
     tags: ["grub2"]
-    when: isolcpus_needed.rc != 0
 
 ###################################################
 # Reboot t-rex system for settings to take effect #
@@ -285,7 +359,7 @@
 
   - name: REBOOTING DUT SERVER NOW
     reboot:
-    when: iommu_found1.rc != 0 or iommu_found2.rc != 0 or hugepages_found1.rc != 0 or hugepages_found2.rc != 0 or hugepages_found3.rc != 0 or isolcpus_needed.rc !=0
+    when: grub_before.stat.checksum != grub_after.stat.checksum
 
 ####################
 # Getting NIC info #
@@ -375,8 +449,9 @@
   - name: Undefining rhel_loopback if needed
     shell: virsh undefine rhel_loopback
     when: '"rhel_loopback" in all_vms.list_vms'
+# DRC - Likely need a different option here for Power
   - name: Running virt-install
-    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus=4,cpuset={{ vcpu_1.stdout }},{{ vcpu_2.stdout }},{{ vcpu_3.stdout }},{{ vcpu_4.stdout }} --check-cpu --cpu {{ dut_cpu_model }},+pdpe1gb,cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
+    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},+pdpe1gb,cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
   - name: Setting permissions on vhost socket folder
     file:
        path: /tmp/vhost-sock0
@@ -389,6 +464,18 @@
     shell: virsh vcpupin rhel_loopback 2 {{ vcpu_3.stdout }}
   - name: Setting cpu pin for vcpu 3
     shell: virsh vcpupin rhel_loopback 3 {{ vcpu_4.stdout }}
+  - name: Setting cpu pin for vcpu 4
+    shell: virsh vcpupin rhel_loopback 4 {{ vcpu_5.stdout }}
+    when: ansible_architecture == "ppc64le"
+  - name: Setting cpu pin for vcpu 5
+    shell: virsh vcpupin rhel_loopback 5 {{ vcpu_6.stdout }}
+    when: ansible_architecture == "ppc64le"
+  - name: Setting cpu pin for vcpu 6
+    shell: virsh vcpupin rhel_loopback 6 {{ vcpu_7.stdout }}
+    when: ansible_architecture == "ppc64le"
+  - name: Setting cpu pin for vcpu 7
+    shell: virsh vcpupin rhel_loopback 7 {{ vcpu_8.stdout }}
+    when: ansible_architecture == "ppc64le"
   - name: Setting emulator pin for guest
     shell: virsh emulatorpin rhel_loopback {{ vcpu_emulator.stdout }}
   - name: stop rhel guest
@@ -433,6 +520,7 @@
   - name: Using QE Secret sauce to add subscription for repos
     shell: ~/vm.sh run_cmd rhel_loopback "{{ qe_subscription_command }}"
     when: qe_subscription_mode
+# DRC - Changeme
   - name: subscribing to appstream on VM rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager repos --enable rhel-8-for-x86_64-appstream-rpms"
   - name: Running yum commandset step 1 on rhel_loopback
