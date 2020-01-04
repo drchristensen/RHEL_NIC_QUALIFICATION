@@ -1,7 +1,5 @@
 #########################################################
 # ToDo:
-# - Configure to allow running OVS as root on Power
-# - Add IBM repo configuration (i.e. *.repo files)
 # - Does Power really need more CPUs for the VM/OVS?
 ########################################################
 - name: T-Rex Setup
@@ -43,7 +41,6 @@
     when: not st.stat.exists
 
 ######################################
-######################################
 # Install repositories on DUT server #
 ######################################
 
@@ -74,7 +71,6 @@
   - name: Install needed repos stage 8
     yum:
       name: virt-install,virt-manager,wget
-# DRC - Are there any PPC specific files needed here?
   - name: Installing openvswitch packages
     yum:
       name: "{{ ovs_selinux_rpm_path }}, {{ ovs_rpm_path }}"

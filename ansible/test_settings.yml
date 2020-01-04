@@ -19,6 +19,7 @@ custom_repo_path: "http://9.114.224.56/~drc/ftp3.repo"
 
 # T-Rex version to use (example v2.53 : Note please include the v) This is the version that will be downloaded from git
 # and installed on the trex server.
+trex_path: http://trex-tgn.cisco.com/trex/release
 trex_version: v2.53
 
 # T-Rex server NIC names (example eth1, enp68s0f0, etc...)
@@ -123,8 +124,14 @@ dut_hugepages: 32
 dut_hugepagesz: 1G
 dut_default_hugepagesz: 1G
 
+trex_hugepages: 32
+trex_hugepagesz: 1G
+trex_default_hugepagesz: 1G
+
 # x86 based systems typically require "pt", Power based systems should select "none"
 dut_iommu_mode: none
+trex_iommu_mode: pt
 
 # x86 based systems will require "on", Power based systems don't use this setting
 dut_intel_iommu_mode: on
+trex_intel_iommu_mode: on

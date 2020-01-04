@@ -1,7 +1,7 @@
 - name: T-Rex Setup 
   hosts: trex
   vars_files:
-    - /etc/ansible/test_settings.yml
+    - ./test_settings.yml
   tasks:
   - debug: 
       msg: Debug mode is enabled
@@ -37,108 +37,110 @@
 # Modify startup parameters for hugepages and iommu #
 #####################################################
 
-  - name: Checking for hugepages in grub step 1 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep hugepages=32"
-    register: hugepages_found1
-    ignore_errors: True
-  - debug:
-      var: hugepages_found
-    when: redhat_debug_mode == true
-  - name: Adding hugepages in grub if needed step 1
-    when: hugepages_found1.rc != 0
+  - name: Check grub defaults file before hugepage/iommu changes
+    stat: path=/etc/default/grub
+    register: grub_before
+  - name: Changing existing hugepages in grub
+    # Hugepages setting should follow hugepagesz setting on the kernel command-line
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1hugepages=32 \2'
-      backrefs: yes
-  - name: Checking for hugepages in grub step 2 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep hugepagesz=1G"
-    register: hugepages_found2
-    ignore_errors: True
-  - debug:
-      var: hugepages_found
-    when: redhat_debug_mode == true
-  - name: Adding hugepages in grub if needed step 2
-    when: hugepages_found2.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bhugepages=)(\d+)([^<]*\"$)'
+      line: '\g<1>{{ trex_hugepages }}\g<3>'
+      backrefs: true
+  - name: Adding new hugepages in grub
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1hugepagesz=1G \2'
-      backrefs: yes
-  - name: Checking for hugepages in grub step 3 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep default_hugepagesz=1G"
-    register: hugepages_found3
-    ignore_errors: True
-  - debug:
-      var: hugepages_found
-    when: redhat_debug_mode == true
-  - name: Adding hugepages in grub if needed step 3
-    when: hugepages_found3.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bhugepages=\d+)[^<]*\"$)'
+      line: '\g<1>hugepages={{ trex_hugepages }} \g<2>'
+      backrefs: true
+  - name: Changing existing hugepagesz in grub
     lineinfile:
       path: /etc/default/grub
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1default_hugepagesz=1G \2'
-      backrefs: yes
-  - name: Checking for iommu in grub step 1 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep iommu=pt"
-    register: iommu_found1
-    ignore_errors: True
-  - debug:
-      var: iommu_found
-    when: redhat_debug_mode == true
-  - name: Adding iommu in grub if needed step 1
-    when: iommu_found1.rc != 0
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bhugepagesz=)(\d+[gGkKmM])([^<]*\"$)'
+      line: '\g<1>{{ trex_hugepagesz }}\g<3>'
+      backrefs: true
+  - name: Adding new hugepagesz in grub
     lineinfile:
-      path: /etc/default/grub 
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1iommu=pt \2'
-      backrefs: yes
-  - name: Checking for iommu in grub step 2 (Fatal errors are normal here)
-    shell: "cat /etc/default/grub | grep intel_iommu=on"
-    register: iommu_found2
-    ignore_errors: True
-  - debug:
-      var: iommu_found
-    when: redhat_debug_mode == true
-  - name: Adding iommu in grub if needed step 2
-    when: iommu_found2.rc != 0
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bhugepagesz=\d+[gGkKmM])[^<]*\"$)'
+      line: '\g<1>hugepagesz={{ trex_hugepagesz }} \g<2>'
+      backrefs: true
+  - name: Changing existing default_hugepagesz in grub
     lineinfile:
-      path: /etc/default/grub 
-      regexp: '(GRUB_CMDLINE_LINUX=")(.*")'
-      line: '\1intel_iommu=on \2'
-      backrefs: yes
-  - name: Tweak the kernel for hugepages and iommu step 1
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bdefault_hugepagesz=)(\d+[gGkKmM])([^<]*\"$)'
+      line: '\g<1>{{ trex_default_hugepagesz }}\g<3>'
+      backrefs: true
+  - name: Adding new default_hugepagesz in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bdefault_hugepagesz=\d+[gGkKmM])[^<]*\"$)'
+      line: '\g<1>default_hugepagesz={{ trex_default_hugepagesz }} \g<2>'
+      backrefs: true
+  - name: Changing existing iommu in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\biommu=)([a-zA-Z]+)([^<]*\"$)'
+      line: '\g<1>{{ dut_iommu_mode }}\g<3>'
+      backrefs: true
+    when: dut_iommu_mode != "none"
+  - name: Adding new iommu in grub
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\biommu=[a-zA-Z]+)[^<]*\"$)'
+      line: '\g<1>iommu={{ dut_iommu_mode }} \g<2>'
+      backrefs: true
+    when: dut_iommu_mode != "none"
+  - name: Changing existing intel_iommu in grub (x86_64)
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bntel_iommu=)([a-zA-Z]+)([^<]*\"$)'
+      line: '\g<1>{{ dut_intel_iommu_mode }}\g<3>'
+      backrefs: true
+    when: ansible_architecture == "x86_64"
+  - name: Adding new intel_iommu in grub (x86_64)
+    lineinfile:
+      path: /etc/default/grub
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bintel_iommu=[a-zA-Z]+)[^<]*\"$)'
+      line: '\g<1>intel_iommu={{ dut_intel_iommu_mode }} \g<2>'
+      backrefs: true
+    when: ansible_architecture == "x86_64"
+  - name: Check for grub configuration changes (iommu/hugepages)
+    stat: path=/etc/default/grub
+    register: grub_after
+  - name: Tweak the kernel for hugepages step 1
     command: "grub2-editenv - unset kernelopts"
-  - name: Tweak the kernel for hugepages and iommu step 2
+    when: grub_before.stat.checksum != grub_after.stat.checksum
+  - name: Tweak the kernel for hugepages step 2
     command: "grub2-mkconfig -o /boot/grub2/grub.cfg"
+    when: grub_before.stat.checksum != grub_after.stat.checksum
     tags: ["grub"]
-    when: iommu_found1.rc != 0 or iommu_found2.rc != 0 or hugepages_found1.rc != 0 or hugepages_found2.rc != 0 or hugepages_found3.rc != 0
 
 
 #################
 # Install T-Rex #
 #################
 
-  - name: Creates t-rex directory
+  - name: Creating t-rex directory
     file:
       path: /root/trex
       state: directory
-  - name: Check that the t-rex is downloaded
+  - name: Checking that t-rex is downloaded
     stat:
       path: /root/trex/{{ trex_version }}
     register: stat_result
-  - name: Download t-rex {{ trex_version }}
+  - name: Downloading t-rex {{ trex_version }}
     when: stat_result.stat.exists == False
     get_url:
-      url: http://trex-tgn.cisco.com/trex/release/{{ trex_version }}.tar.gz
+      url: "{{ trex_path }}/{{ trex_version }}.tar.gz"
       dest: /root/trex/{{ trex_version }}.tar.gz
-  - name: unzip trex files
+  - name: Unzipping t-rex files
     when: stat_result.stat.exists == False
     unarchive:
       src: /root/trex/{{ trex_version }}.tar.gz
       dest: /root/trex
       copy: no
-  - name: run t-rex setup script (use mac mode)
+  - name: Running t-rex setup script (use mac mode)
     shell: python /root/trex/{{ trex_version }}/dpdk_setup_ports.py -c {{trex_interface_1}} {{trex_interface_2}} --force-mac -o /etc/trex-cfg.yaml
   - name: debug actions for t-rex setup
     block:
@@ -153,9 +155,9 @@
 # Tune isolated cpus based on t-rex config #
 ############################################
 
-  - name: Enable tuned
+  - name: Enabling tuned
     shell: systemctl enable tuned
-  - name: Start tuned server
+  - name: Starting tuned server
     shell: systemctl start tuned
   - name: Getting isolated core list
     shell: cat /etc/trex-cfg.yaml | grep threads | awk '{ print $2 }' | tr -d "[]"
@@ -163,7 +165,7 @@
   - debug:
       var: corelist
     when: redhat_debug_mode == true
-  - name: checking for corelist in cpu-partitioning
+  - name: Checking for corelist in cpu-partitioning
     replace:
       path: /etc/tuned/cpu-partitioning-variables.conf
       regexp: 'isolated_cores=.*$\n'
@@ -173,7 +175,7 @@
     shell: echo isolated_cores={{corelist.stdout}} >> /etc/tuned/cpu-partitioning-variables.conf
   - name: Setting tuned to use cpu-partitioning
     shell: tuned-adm profile cpu-partitioning
-  - name: debug actions for tuned setup
+  - name: Debugging actions for tuned setup
     when: redhat_debug_mode == true
     shell:
       command: cat /etc/tuned/cpu-partitioning.yaml
@@ -188,41 +190,41 @@
 
   - name: REBOOTING TREX SERVER NOW
     reboot:
-    when: iommu_found1.rc != 0 or iommu_found2.rc != 0 or hugepages_found1.rc != 0 or hugepages_found2.rc != 0 or hugepages_found3.rc != 0
+    when: grub_before.stat.checksum != grub_after.stat.checksum
 
 ######################################
 # Setup T-Rex server for pvp scripts #
 ######################################
 
-  - name: Git clone ovs_perf scripts
+  - name: Cloning git ovs_perf scripts
     git:
       repo: https://github.com/chaudron/ovs_perf.git
       clone: yes
       dest: /root/ovs_perf
   - name: Install modules from pip
     shell: pip install --upgrade enum34 natsort netaddr matplotlib scapy spur
-  - name: Git clone xena libraries
+  - name: Cloning git xena libraries
     git:
       repo: https://github.com/fleitner/XenaPythonLib
       clone: yes
       dest: /root/XenaPythonLib
-  - name: Run setup for xena libraries
+  - name: Running setup for xena libraries
     shell: python setup.py install
     args:
       chdir: /root/XenaPythonLib
-  - name: Check that the t-rex_client is unzipped
+  - name: Checking that the t-rex_client is unzipped
     stat:
       path: /root/trex/{{ trex_version }}/trex_client_{{ trex_version }}
     register: stat_result
-  - name: unzip trex_client files
+  - name: Unzipping trex_client files
     when: stat_result.stat.exists == False
     unarchive:
       src: /root/trex/{{ trex_version }}/trex_client_{{ trex_version }}.tar.gz
       dest: /root/trex/{{ trex_version }}
       copy: no
-  - name: Copy trex client files step 1
+  - name: Copying t-rex client files step 1
     shell: cp -r /root/trex/{{ trex_version}}/trex_client/interactive/trex /root/ovs_perf/
-  - name: Copy trex client files step 2
+  - name: Copying t-rex client files step 2
     shell: cp -r /root/trex/{{ trex_version}}/trex_client/external_libs /root/ovs_perf/trex/
 
 #############################
