@@ -17,6 +17,11 @@
 # Check that nics are seen by kernel #
 #################################################
 
+# DRC - Move to ensure dirverctl dependency is satisfied
+  - name: "Remove any existing driverctl overrides for first nic"
+    shell: driverctl unset-override {{ dut_interface_1_pciid }}
+  - name: "Remove any existing driverctl overrides for second nic"
+    shell: driverctl unset-override {{ dut_interface_2_pciid }}
   - stat: path=/sys/class/net/{{ dut_interface_1 }}
     register: st
   - block:
@@ -186,12 +191,20 @@
 # Setup libvirt service #
 #########################
 
-# DRC - Should we add a check to change an existing value?
-  - name: Set user for libvirt to hugetlbfs
+# DRC - Need to revisit this to reduce permissions if possible
+  - name: Set QEMU user to root (Power)
+    lineinfile:
+      path: /etc/libvirt/qemu.conf
+      regexp: '^#user = "root"'
+      line: 'user = "root"'
+    when: ansible_architecture == "ppc64le"
+  - name: Change QEMU group from libvirt to hugetlbfs (x86)
     lineinfile:
       path: /etc/libvirt/qemu.conf
       regexp: '^#group = "root"'
       line: 'group = "hugetlbfs"'
+    when: ansible_architecture != "ppc64le"
+# DRC - Suggest a restart line here as a result of config file changes
   - name: Enable service libvirtd.service
     service:
       name: libvirtd.service
@@ -240,7 +253,6 @@
   - name: Get vcpu_1
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_1
     register: vcpu_1
-    when: ansible_architecture != "ppc64le"
   - debug:
       var: vcpu_1
     when: redhat_debug_mode == true
@@ -289,6 +301,18 @@
     when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_8
+    when: redhat_debug_mode == true
+  - name: Get vcpu_count
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_count
+    register: vcpu_count
+  - debug:
+      var: vcpu_count
+    when: redhat_debug_mode == true
+  - name: Get vcpu_str
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_str
+    register: vcpu_str
+  - debug:
+      var: vcpu_str
     when: redhat_debug_mode == true
   - name: Get dut_dpdk_lcore_mask
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} dut_dpdk_lcore_mask
@@ -382,6 +406,12 @@
 # Starting openvswitch service #
 ################################
 
+  - name: Enable root user for OVS (Power only)
+    lineinfile:
+      path: /etc/sysconfig/openvswitch
+      regexp: '^OVS_USER_ID='
+      line: 'OVS_USER_ID="root:root"'
+    when: ansible_architecture == "ppc64le"
   - name: Enable service openvswitch
     service:
       name: openvswitch
@@ -449,9 +479,12 @@
   - name: Undefining rhel_loopback if needed
     shell: virsh undefine rhel_loopback
     when: '"rhel_loopback" in all_vms.list_vms'
-# DRC - Likely need a different option here for Power
-  - name: Running virt-install
+  - name: Running virt-install (x86)
     shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},+pdpe1gb,cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
+    when: ansible_architecture == "x86_64"
+  - name: Running virt-install (Power)
+    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
+    when: ansible_architecture == "ppc64le"
   - name: Setting permissions on vhost socket folder
     file:
        path: /tmp/vhost-sock0
@@ -494,10 +527,14 @@
       name: rhel_loopback
   - name: Redefining rhel_loopback with new xml modifications
     shell: virsh define /tmp/rhel_loopback.xml
+# DRC - Generating an error on Power:
+# DRC - Requested operation is not valid: domain is not running
+# DRC - Seems expected due to previous shutdown operation
   - name: Shutdown VM
     virt:
       name: rhel_loopback
       command: destroy
+    ignore_errors: True
   - name: Configuring VM for network manager
     shell: LIBGUESTFS_BACKEND=direct virt-customize -d rhel_loopback --root-password password:root --uninstall cloud-init --firstboot-command 'nmcli c | grep -o --  "[0-9a-fA-F]\{8\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{12\}" | xargs -n 1 nmcli c delete uuid' --firstboot-command 'nmcli con add con-name ovs-dpdk ifname ens2 type ethernet ip4 1.1.1.1/24' --firstboot-command 'nmcli con add con-name management ifname ens3 type ethernet' --firstboot-command 'reboot'
   - name: Starting up VM rhel_loopback
@@ -513,13 +550,15 @@
     shell: ~/vm.sh login_vm rhel_loopback
   - name: Setting up subscription manager step 1 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager register --username={{ rh_sub_username }} --password={{ rh_sub_pass }}"
-    when: not qe_subscription_mode
+    when: not qe_subscription_mode and not custom_repo_setup
   - name: Setting up subscription manager step 2 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager attach --pool={{ rh_sub_pool_id }}"
-    when: not qe_subscription_mode
+    when: not qe_subscription_mode and not custom_repo_setup
   - name: Using QE Secret sauce to add subscription for repos
     shell: ~/vm.sh run_cmd rhel_loopback "{{ qe_subscription_command }}"
     when: qe_subscription_mode
+  - name: Setup custom repos
+    when: custom_repo_setup
 # DRC - Changeme
   - name: subscribing to appstream on VM rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager repos --enable rhel-8-for-x86_64-appstream-rpms"
