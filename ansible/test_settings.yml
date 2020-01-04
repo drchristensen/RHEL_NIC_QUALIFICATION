@@ -19,8 +19,8 @@ custom_repo_path: "http://9.114.224.56/~drc/ftp3.repo"
 
 # T-Rex version to use (example v2.53 : Note please include the v) This is the version that will be downloaded from git
 # and installed on the trex server.
-trex_path: http://trex-tgn.cisco.com/trex/release
-trex_version: v2.53
+trex_path: https://trex-tgn.cisco.com/trex/release
+trex_version: v2.72
 
 # T-Rex server NIC names (example eth1, enp68s0f0, etc...)
 trex_interface_1: ens4f0

@@ -143,43 +143,44 @@
   - name: Running t-rex setup script (use mac mode)
     shell: python /root/trex/{{ trex_version }}/dpdk_setup_ports.py -c {{trex_interface_1}} {{trex_interface_2}} --force-mac -o /etc/trex-cfg.yaml
   - name: debug actions for t-rex setup
-    block:
-      - shell: 
-          command: cat /etc/trex-cfg.yaml
-          register: output
-      - debug:
-          var: output.stdout
+    shell: cat /etc/trex-cfg.yaml
+    register: output
+  - debug:
+      var: output.stdout
     when: redhat_debug_mode == true
     
 ############################################
 # Tune isolated cpus based on t-rex config #
 ############################################
 
-  - name: Enabling tuned
-    shell: systemctl enable tuned
-  - name: Starting tuned server
-    shell: systemctl start tuned
   - name: Getting isolated core list
     shell: cat /etc/trex-cfg.yaml | grep threads | awk '{ print $2 }' | tr -d "[]"
     register: corelist
   - debug:
       var: corelist
     when: redhat_debug_mode == true
-  - name: Checking for corelist in cpu-partitioning
-    replace:
+  - name: Check cpu-partitioning-variables.conf file before isolcpus changes
+    stat: path=/etc/tuned/cpu-partitioning-variables.conf
+    register: tuned_before
+  - name: Adding/modifying isolcpus in cpu-partitioning-variables.conf
+    # Changes the value if present, appends the value if missing
+    lineinfile:
       path: /etc/tuned/cpu-partitioning-variables.conf
-      regexp: 'isolated_cores=.*$\n'
-      replace: ''
-      backup: no
-  - name: Inserting core list to cpu-partitioning configuration file
-    shell: echo isolated_cores={{corelist.stdout}} >> /etc/tuned/cpu-partitioning-variables.conf
+      regexp: '^isolated_cores=.*$'
+      line: 'isolated_cores={{ corelist.stdout }}'
+  - name: Check cpu-partitioning-variables.conf file for configuration changes
+    stat: path=/etc/tuned/cpu-partitioning-variables.conf
+    register: tuned_after
+  - name: Enabling tuned
+    shell: systemctl enable tuned
+  - name: Starting tuned server
+    shell: systemctl start tuned
   - name: Setting tuned to use cpu-partitioning
     shell: tuned-adm profile cpu-partitioning
   - name: Debugging actions for tuned setup
     when: redhat_debug_mode == true
-    shell:
-      command: cat /etc/tuned/cpu-partitioning.yaml
-      register: output
+    shell: cat /etc/tuned/cpu-partitioning-variables.conf
+    register: output
   - debug:
       var: output.stdout
     when: redhat_debug_mode == true
@@ -190,7 +191,7 @@
 
   - name: REBOOTING TREX SERVER NOW
     reboot:
-    when: grub_before.stat.checksum != grub_after.stat.checksum
+    when: grub_before.stat.checksum != grub_after.stat.checksum or tuned_before.stat.checksum != tuned_after.stat.checksum
 
 ######################################
 # Setup T-Rex server for pvp scripts #
@@ -202,7 +203,7 @@
       clone: yes
       dest: /root/ovs_perf
   - name: Install modules from pip
-    shell: pip install --upgrade enum34 natsort netaddr matplotlib scapy spur
+    shell: pip install --upgrade enum34 natsort netaddr matplotlib scapy spur wheel
   - name: Cloning git xena libraries
     git:
       repo: https://github.com/fleitner/XenaPythonLib
