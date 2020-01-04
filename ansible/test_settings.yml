@@ -15,6 +15,7 @@ qe_subscription_command:
 
 # Alternate solution to subscription manager, allows custom repos to be used instead
 custom_repo_setup: true
+custom_repo_path: "http://9.114.224.56/~drc/ftp3.repo"
 
 # T-Rex version to use (example v2.53 : Note please include the v) This is the version that will be downloaded from git
 # and installed on the trex server.
@@ -34,6 +35,10 @@ ovs_selinux_rpm_path: "http://9.114.224.56/~drc/openvswitch-selinux-extra-policy
 
 # DUT server isolated core list
 dut_isolated_cpus: 4-63
+
+# VM isolated core list (x86_64 should use 1,2,3 and Power should use 1,2,3,4,5)
+#vm_isolated_cpus: 1,2,3
+vm_isolated_cpus: 1,2,3,4,5
 
 # DUT NIC Device names
 #DRC - MLX5 (NUMA node 0)

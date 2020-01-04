@@ -160,22 +160,20 @@
       line: '\g<1>iommu={{ dut_iommu_mode }} \g<2>'
       backrefs: true
     when: dut_iommu_mode != "none"
-  - name: Changing existing intel_iommu in grub
+  - name: Changing existing intel_iommu in grub (x86_64)
     lineinfile:
       path: /etc/default/grub
       regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bntel_iommu=)([a-zA-Z]+)([^<]*\"$)'
       line: '\g<1>{{ dut_intel_iommu_mode }}\g<3>'
       backrefs: true
-    # This setting is not applicable to Power systems
-    when: ansible_architecture != "ppc64le"
-  - name: Adding new intel_iommu in grub
+    when: ansible_architecture == "x86_64"
+  - name: Adding new intel_iommu in grub (x86_64)
     lineinfile:
       path: /etc/default/grub
       regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bintel_iommu=[a-zA-Z]+)[^<]*\"$)'
       line: '\g<1>intel_iommu={{ dut_intel_iommu_mode }} \g<2>'
       backrefs: true
-    # This setting is not applicable to Power systems
-    when: ansible_architecture != "ppc64le"
+    when: ansible_architecture == "x86_64"
   - name: Check for grub configuration changes (iommu/hugepages)
     stat: path=/etc/default/grub
     register: grub_after
@@ -198,12 +196,12 @@
       regexp: '^#user = "root"'
       line: 'user = "root"'
     when: ansible_architecture == "ppc64le"
-  - name: Change QEMU group from libvirt to hugetlbfs (x86)
+  - name: Change QEMU group from libvirt to hugetlbfs (x86_64)
     lineinfile:
       path: /etc/libvirt/qemu.conf
       regexp: '^#group = "root"'
       line: 'group = "hugetlbfs"'
-    when: ansible_architecture != "ppc64le"
+    when: ansible_architecture == "x86_64"
 # DRC - Suggest a restart line here as a result of config file changes
   - name: Enable service libvirtd.service
     service:
@@ -274,34 +272,35 @@
   - debug:
       var: vcpu_4
     when: redhat_debug_mode == true
-  - name: Get vcpu_5
+  - name: Get vcpu_5 (Power)
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_5
     register: vcpu_5
     when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_5
-    when: redhat_debug_mode == true
-  - name: Get vcpu_6
+    when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
+  - name: Get vcpu_6 (Power)
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_6
     register: vcpu_6
     when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_6
-    when: redhat_debug_mode == true
-  - name: Get vcpu_7
+    when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
+  - name: Get vcpu_7 (Power)
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_7
     register: vcpu_7
     when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_7
-    when: redhat_debug_mode == true
-  - name: Get vcpu_8
+    when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
+  - name: Get vcpu_8 (Power)
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_8
     register: vcpu_8
     when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_8
-    when: redhat_debug_mode == true
+    when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
+# DRC - Is this actually needed?
   - name: Get vcpu_count
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_count
     register: vcpu_count
@@ -406,7 +405,7 @@
 # Starting openvswitch service #
 ################################
 
-  - name: Enable root user for OVS (Power only)
+  - name: Enable root user for OVS (Power)
     lineinfile:
       path: /etc/sysconfig/openvswitch
       regexp: '^OVS_USER_ID='
@@ -479,7 +478,7 @@
   - name: Undefining rhel_loopback if needed
     shell: virsh undefine rhel_loopback
     when: '"rhel_loopback" in all_vms.list_vms'
-  - name: Running virt-install (x86)
+  - name: Running virt-install (x86_64)
     shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},+pdpe1gb,cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
     when: ansible_architecture == "x86_64"
   - name: Running virt-install (Power)
@@ -497,40 +496,39 @@
     shell: virsh vcpupin rhel_loopback 2 {{ vcpu_3.stdout }}
   - name: Setting cpu pin for vcpu 3
     shell: virsh vcpupin rhel_loopback 3 {{ vcpu_4.stdout }}
-  - name: Setting cpu pin for vcpu 4
+  - name: Setting cpu pin for vcpu 4 (Power)
     shell: virsh vcpupin rhel_loopback 4 {{ vcpu_5.stdout }}
     when: ansible_architecture == "ppc64le"
-  - name: Setting cpu pin for vcpu 5
+  - name: Setting cpu pin for vcpu 5 (Power)
     shell: virsh vcpupin rhel_loopback 5 {{ vcpu_6.stdout }}
     when: ansible_architecture == "ppc64le"
-  - name: Setting cpu pin for vcpu 6
+  - name: Setting cpu pin for vcpu 6 (Power)
     shell: virsh vcpupin rhel_loopback 6 {{ vcpu_7.stdout }}
     when: ansible_architecture == "ppc64le"
-  - name: Setting cpu pin for vcpu 7
+  - name: Setting cpu pin for vcpu 7 (Power)
     shell: virsh vcpupin rhel_loopback 7 {{ vcpu_8.stdout }}
     when: ansible_architecture == "ppc64le"
   - name: Setting emulator pin for guest
     shell: virsh emulatorpin rhel_loopback {{ vcpu_emulator.stdout }}
-  - name: stop rhel guest
+  - name: Shutting down the rhel_loopback VM
     virt:
       name: rhel_loopback
       state: shutdown
-  - name: dump xml
+  - name: Dumping the rhel_loopback VM XML
     shell: "virsh dumpxml rhel_loopback > /tmp/rhel_loopback.xml"
-  - replace:
+  - name: Enabling shared memory in the rhel_loopback VM XML
+    replace:
       dest: /tmp/rhel_loopback.xml
       regexp: "unit='KiB'/>"
       replace: "unit='KiB' memAccess='shared'/>"
-  - name: Undefining rhel_loopback
+  - name: Undefining rhel_loopback VM
     virt:
       command: undefine
       name: rhel_loopback
-  - name: Redefining rhel_loopback with new xml modifications
+  - name: Redefining rhel_loopback with new XML modifications
     shell: virsh define /tmp/rhel_loopback.xml
-# DRC - Generating an error on Power:
-# DRC - Requested operation is not valid: domain is not running
-# DRC - Seems expected due to previous shutdown operation
-  - name: Shutdown VM
+# DRC - Why is the following necessary? Generates an error on Power systems.
+  - name: Destroying rhel_loopback VM
     virt:
       name: rhel_loopback
       command: destroy
@@ -541,13 +539,14 @@
     virt:
       name: rhel_loopback
       state: running
-  - name: copying virsh console script to default location
+  - name: Copying virsh console script to default location
     copy:
       src: ./vm.sh
       dest: ~/vm.sh
       mode: "777"
   - name: Logging into vm rhel_loopback
     shell: ~/vm.sh login_vm rhel_loopback
+# DRC - =============================================================
   - name: Setting up subscription manager step 1 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager register --username={{ rh_sub_username }} --password={{ rh_sub_pass }}"
     when: not qe_subscription_mode and not custom_repo_setup
@@ -557,11 +556,12 @@
   - name: Using QE Secret sauce to add subscription for repos
     shell: ~/vm.sh run_cmd rhel_loopback "{{ qe_subscription_command }}"
     when: qe_subscription_mode
-  - name: Setup custom repos
-    when: custom_repo_setup
-# DRC - Changeme
   - name: subscribing to appstream on VM rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager repos --enable rhel-8-for-x86_64-appstream-rpms"
+    when: not custom_repo_setup
+  - name: Setup custom repos
+    shell: ~/vm.sh run_cmd rhel_loopback "curl -o /etc/yum.repos.d/custom.repo {{ custom_repo_path }}"
+    when: custom_repo_setup
   - name: Running yum commandset step 1 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y clean all"
   - name: Running yum commandset step 2 on rhel_loopback
@@ -570,22 +570,31 @@
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y install driverctl gcc kernel-devel numactl-devel tuned-profiles-cpu-partitioning wget libibverbs dpdk"
   - name: Running yum commandset step 4 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y update kernel"
-  - name: Modifying grub for tuning on rhel_loopback
+  - name: Modifying grub for tuning on rhel_loopback (x86_64)
     shell: ~/vm.sh run_cmd rhel_loopback "sed -i -e 's/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"isolcpus=1,2,3 default_hugepagesz=1G hugepagesz=1G hugepages=2 /'  /etc/default/grub"
+    when: ansible_architecture == "x86_64"
+  - name: Modifying grub for tuning on rhel_loopback (Power)
+    shell: ~/vm.sh run_cmd rhel_loopback "sed -i -e 's/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"isolcpus=1,2,3,4,5 default_hugepagesz=1G hugepagesz=1G hugepages=2 /'  /etc/default/grub"
+    when: ansible_architecture == "ppc64le"
   - name: Running grub set command step 1 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "grub2-editenv - unset kernelopts"
   - name: Running grub set command step 2 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "grub2-mkconfig -o /boot/grub2/grub.cfg"
-  - name: Setting vfio options on rhel_loopback
+  - name: Setting vfio options on rhel_loopback (x86_64)
     shell: ~/vm.sh run_cmd rhel_loopback "echo 'options vfio enable_unsafe_noiommu_mode=1' > /etc/modprobe.d/vfio.conf"
-  - name: Binding nic to vfio-pci on rhel_loopback
+    when: ansible_architecture == "x86_64"
+  - name: Binding nic to vfio-pci on rhel_loopback (x86_64)
     shell: ~/vm.sh run_cmd rhel_loopback "driverctl -v set-override 0000:00:02.0 vfio-pci"
+    when: ansible_architecture == "x86_64"
+# DRC - ==================
+# DRC - What to do here???
+# DRC - ==================
   - name: Starting tuned service step 1 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "systemctl enable tuned"
   - name: Starting runed service step 2 on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "systemctl start tuned"
   - name: Setting isolated cores for tuning profile on rhel_loopback
-    shell: ~/vm.sh run_cmd rhel_loopback "echo isolated_cores=1,2,3 >> /etc/tuned/cpu-partitioning-variables.conf"
+    shell: ~/vm.sh run_cmd rhel_loopback "echo isolated_cores={{ vm_isolated_cpus }} >> /etc/tuned/cpu-partitioning-variables.conf"
   - name: Starting tuned profile cpu-partitioning on rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "tuned-adm profile cpu-partitioning"
   - name: Rebooting vm rhel_loopback step 1
@@ -596,9 +605,18 @@
     virt:
       name: rhel_loopback
       state: running
+# Running the vm.sh script too quickly after starting the VM
+# interferes with the boot process on Power systems.  Add a
+# small delay to allow the system to proceed past the Open
+# Firmware banner and the grub menu.
+  - name: Pause for VM to boot successfully (Power)
+    pause:
+      minutes: 1
+    when: ansible_architecture == "ppc64le"
   - name: Logging into VM rhel_loopback
     shell: ~/vm.sh login_vm rhel_loopback
-  - name: Logging into vm rhel_loopback
+# DRC - Why is the second login necessary?
+  - name: Logging into VM rhel_loopback
     shell: ~/vm.sh login_vm rhel_loopback
   - name: Getting IP address from VM
     shell: ~/vm.sh run_cmd rhel_loopback "ip a | grep inet | grep brd | awk '{ print \$2 }'" | grep -A 1 "ip a \| grep inet \| grep brd"   | tail -n 1
