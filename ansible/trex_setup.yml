@@ -6,6 +6,7 @@
   - debug: 
       msg: Debug mode is enabled
     when: redhat_debug_mode == true
+
 ########################################
 # Install repositories on T-Rex server #
 ########################################
@@ -21,7 +22,7 @@
       name: python3-setuptools,tmux,tuned-profiles-cpu-partitioning
   - name: Install needed repos stage 3
     yum:
-      name: tar,wget,zeromq-devel
+      name: tar,wget,zeromq-devel,driverctl
   - name: Create symbolic link for python3 
     file:
       src: "/usr/bin/python3"
@@ -32,6 +33,31 @@
       src: "/usr/bin/pip3"
       dest: "/usr/bin/pip"
       state: link
+
+######################################
+# Check that nics are seen by kernel #
+######################################
+
+  - name: "Remove any existing driverctl overrides for first nic"
+    shell: driverctl unset-override {{ trex_interface_1_pciid }}
+  - name: "Remove any existing driverctl overrides for second nic"
+    shell: driverctl unset-override {{ trex_interface_2_pciid }}
+  - stat: path=/sys/class/net/{{ trex_interface_1 }}
+    register: st
+  - block:
+    - name: "Checking that first nic is seen by kernel"
+      debug:
+        msg: "exiting as first nic {{ trex_interface_1 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
+    - meta: end_play
+    when: not st.stat.exists
+  - stat: path=/sys/class/net/{{ trex_interface_2 }}
+    register: st
+  - block:
+    - name: "Checking that second nic is seen by kernel"
+      debug:
+        msg: "exiting as second nic {{ trex_interface_2 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
+    - meta: end_play
+    when: not st.stat.exists 
 
 #####################################################
 # Modify startup parameters for hugepages and iommu #
@@ -81,38 +107,39 @@
     lineinfile:
       path: /etc/default/grub
       regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\biommu=)([a-zA-Z]+)([^<]*\"$)'
-      line: '\g<1>{{ dut_iommu_mode }}\g<3>'
+      line: '\g<1>{{ trex_iommu_mode }}\g<3>'
       backrefs: true
-    when: dut_iommu_mode != "none"
+    when: trex_iommu_mode != "none"
   - name: Adding new iommu in grub
     lineinfile:
       path: /etc/default/grub
       regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\biommu=[a-zA-Z]+)[^<]*\"$)'
-      line: '\g<1>iommu={{ dut_iommu_mode }} \g<2>'
+      line: '\g<1>iommu={{ trex_iommu_mode }} \g<2>'
       backrefs: true
-    when: dut_iommu_mode != "none"
+    when: trex_iommu_mode != "none"
   - name: Changing existing intel_iommu in grub (x86_64)
     lineinfile:
       path: /etc/default/grub
-      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bntel_iommu=)([a-zA-Z]+)([^<]*\"$)'
-      line: '\g<1>{{ dut_intel_iommu_mode }}\g<3>'
+      regexp: '(^GRUB_CMDLINE_LINUX=\"[^<]*\bintel_iommu=)([a-zA-Z_]+)([^<]*\"$)'
+      line: '\g<1>{{ trex_intel_iommu_mode }}\g<3>'
       backrefs: true
     when: ansible_architecture == "x86_64"
   - name: Adding new intel_iommu in grub (x86_64)
     lineinfile:
       path: /etc/default/grub
-      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bintel_iommu=[a-zA-Z]+)[^<]*\"$)'
-      line: '\g<1>intel_iommu={{ dut_intel_iommu_mode }} \g<2>'
+      regexp: '(^GRUB_CMDLINE_LINUX=\")((?![^<]*\bintel_iommu=[a-zA-Z_]+)[^<]*\"$)'
+      line: '\g<1>intel_iommu={{ trex_intel_iommu_mode }} \g<2>'
       backrefs: true
     when: ansible_architecture == "x86_64"
   - name: Check for grub configuration changes (iommu/hugepages)
     stat: path=/etc/default/grub
     register: grub_after
   - name: Tweak the kernel for hugepages step 1
-    command: "grub2-editenv - unset kernelopts"
-    when: grub_before.stat.checksum != grub_after.stat.checksum
-  - name: Tweak the kernel for hugepages step 2
-    command: "grub2-mkconfig -o /boot/grub2/grub.cfg"
+    block:
+      - name: Unset current grub kernel options
+        command: "grub2-editenv - unset kernelopts"
+      - name: Rebuild grub configuration with new defaults
+        command: "grub2-mkconfig -o /boot/grub2/grub.cfg"
     when: grub_before.stat.checksum != grub_after.stat.checksum
     tags: ["grub"]
 
@@ -141,7 +168,7 @@
       dest: /root/trex
       copy: no
   - name: Running t-rex setup script (use mac mode)
-    shell: python /root/trex/{{ trex_version }}/dpdk_setup_ports.py -c {{trex_interface_1}} {{trex_interface_2}} --force-mac -o /etc/trex-cfg.yaml
+    shell: python /root/trex/{{ trex_version }}/dpdk_setup_ports.py -c {{trex_interface_1}} {{trex_interface_2}} --force-mac -o /etc/trex_cfg.yaml
   - name: debug actions for t-rex setup
     shell: cat /etc/trex-cfg.yaml
     register: output
@@ -192,6 +219,17 @@
   - name: REBOOTING TREX SERVER NOW
     reboot:
     when: grub_before.stat.checksum != grub_after.stat.checksum or tuned_before.stat.checksum != tuned_after.stat.checksum
+
+####################
+# Getting NIC info #
+####################
+
+  - name: Binding nic {{ trex_interface_1 }} to driver {{ trex_driver }}
+    shell: "driverctl -v set-override {{ trex_interface_1_pciid }} {{ trex_driver }}"
+    ignore_errors: True
+  - name: Binding nic {{ trex_interface_2 }} to driver {{ trex_driver }}
+    shell: "driverctl -v set-override {{ trex_interface_2_pciid }} {{ trex_driver }}"
+    ignore_errors: True
 
 ######################################
 # Setup T-Rex server for pvp scripts #

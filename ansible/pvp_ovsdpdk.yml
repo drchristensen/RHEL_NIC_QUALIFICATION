@@ -11,36 +11,7 @@
       msg: Debug mode is enabled
     when: redhat_debug_mode == true
 
-#################################################
-# Check that nics are seen by kernel #
-#################################################
-
-# DRC - Move to ensure dirverctl dependency is satisfied
-  - name: "Remove any existing driverctl overrides for first nic"
-    shell: driverctl unset-override {{ dut_interface_1_pciid }}
-  - name: "Remove any existing driverctl overrides for second nic"
-    shell: driverctl unset-override {{ dut_interface_2_pciid }}
-  - stat: path=/sys/class/net/{{ dut_interface_1 }}
-    register: st
-  - block:
-    - name: "Checking that first nic is seen by kernel"
-      debug:
-        msg: "exiting as first nic {{ dut_interface_1 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
-
-    - meta: end_play
-    when: not st.stat.exists
-
-  - stat: path=/sys/class/net/{{ dut_interface_2 }}
-    register: st
-  - block:
-    - name: "Checking that second nic is seen by kernel"
-      debug:
-        msg: "exiting as second nic {{ dut_interface_2 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
-
-    - meta: end_play
-    when: not st.stat.exists
-
-######################################
+#####################################
 # Install repositories on DUT server #
 ######################################
 
@@ -85,6 +56,34 @@
       src: "/usr/bin/pip3"
       dest: "/usr/bin/pip"
       state: link
+
+#################################################
+# Check that nics are seen by kernel #
+#################################################
+
+  - name: "Remove any existing driverctl overrides for first nic"
+    shell: driverctl unset-override {{ dut_interface_1_pciid }}
+  - name: "Remove any existing driverctl overrides for second nic"
+    shell: driverctl unset-override {{ dut_interface_2_pciid }}
+  - stat: path=/sys/class/net/{{ dut_interface_1 }}
+    register: st
+  - block:
+    - name: "Checking that first nic is seen by kernel"
+      debug:
+        msg: "exiting as first nic {{ dut_interface_1 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
+
+    - meta: end_play
+    when: not st.stat.exists
+
+  - stat: path=/sys/class/net/{{ dut_interface_2 }}
+    register: st
+  - block:
+    - name: "Checking that second nic is seen by kernel"
+      debug:
+        msg: "exiting as second nic {{ dut_interface_2 }} cannot be seen by the kernel.  Please check settings or unbind the nic from a dpdk driver using driverctl"
+
+    - meta: end_play
+    when: not st.stat.exists
 
 ####################################################
 # Tweak the system for QEMU and and OVS-DPDK usage #
@@ -384,17 +383,8 @@
 # Getting NIC info #
 ####################
 
-  - name: Getting pci address of NIC 1
-    shell: "ethtool -i {{ dut_interface_1 }} | grep bus-info | awk '{print $2}'"
-    register: dut_nic1_pci_address
-  - name: finding numa node of nic
-    shell: cat /sys/class/net/{{ dut_interface_1}}/device/numa_node
-    register: nic1_numa
-  - debug:
-      var: dut_nic1_pci_address
-    when: redhat_debug_mode == true
   - name: Binding nic {{ dut_interface_1 }} to driver {{ dut_driver }}
-    shell: "driverctl -v set-override {{ dut_nic1_pci_address.stdout }} {{ dut_driver }}"
+    shell: "driverctl -v set-override {{ dut_interface_1_pciid }} {{ dut_driver }}"
     ignore_errors: True
 
 ################################

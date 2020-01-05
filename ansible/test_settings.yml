@@ -25,6 +25,8 @@ trex_version: v2.72
 # T-Rex server NIC names (example eth1, enp68s0f0, etc...)
 trex_interface_1: ens4f0
 trex_interface_2: ens4f1
+trex_interface_1_pciid: "0000:58:00.0"
+trex_interface_2_pciid: "0000:58:00.1"
 
 # Openvswitch package location. While you can pull this from the fast datapath repository it is recommended to contact
 # your development representative to get the latest version. Then copy this to the DUT and specify its location.
@@ -56,9 +58,12 @@ dut_interface_2_pciid: "0034:01:00.1"
 
 tc_offload_card_type: "Unknown"
 
-# DUT DPDK Driver,  for most devices this will be vfio-pci.  Changes for other cards such as Mellanox may be required.
-# This is the DPDK driver that the card will bind to on the DUT.
-dut_driver: none
+# DUT DPDK Driver. For most devices this will be vfio-pci, but some NICs such as Mellanox ConnectX-5 don't
+# user access to hardware registers, so the driver should be "none".
+# dut_driver: vfio-pci
+# dut_driver: none
+dut_driver: vfio-pci
+trex_driver: vfio-pci
 
 # DUT DPDK PMD Mask.  PMD mask to set for which cores will be used for PMD threads.
 # DRC - Is this for OVS????
@@ -78,46 +83,11 @@ dut_driver: none
 # This is the location where the file is located on the DUT.
 rhel_guest_image_path: /home/vm/images/rhel-guest-image-8.1-263.ppc64le.qcow2
 
-# DRC - Do we need to add this for virt-install?
-# CPU architecture
-# dut_cpu_arch: x86
-dut_cpu_arch: ppc64
-
 # CPU model info, needs to be modified to match your DUT cpu type. If an error occurs with virt-install might need to
 # modify this line to a model present in  /usr/share/libvirt/cpu_map.xml
 #dut_cpu_model: SandyBridge
 #dut_cpu_model: Haswell-noTSX
 dut_cpu_model: POWER9
-
-# DRC - vcpu's are 0 based.  Why does this start at 1?  Is there a limit on the number of vcpu's?
-# Virtual CPU list (Should be in isolated list), emulator vcpu can be non isolated.  Use cores that will not clash with DPDK core mask.
-# DRC - Currently ignored in favor of get_cpulist.sh
-#vcpu_count: 24
-#vcpu_0: 40
-#vcpu_1: 41
-#vcpu_2: 42
-#vcpu_3: 43
-#vcpu_4: 44
-#vcpu_5: 45
-#vcpu_6: 46
-#vcpu_7: 47
-#vcpu_8: 48
-#vcpu_9: 49
-#vcpu_10: 50
-#vcpu_11: 51
-#vcpu_12: 52
-#vcpu_13: 53
-#vcpu_14: 54
-#vcpu_15: 55
-#vcpu_16: 56
-#vcpu_17: 57
-#vcpu_18: 58
-#vcpu_19: 59
-#vcpu_20: 60
-#vcpu_21: 61
-#vcpu_22: 62
-#vcpu_23: 63
-#vcpu_emulator: 3
 
 # Set the hugepage variables for the Linux kernel command-line
 dut_hugepages: 32
@@ -129,9 +99,9 @@ trex_hugepagesz: 1G
 trex_default_hugepagesz: 1G
 
 # x86 based systems typically require "pt", Power based systems should select "none"
-dut_iommu_mode: none
-trex_iommu_mode: pt
+dut_iommu_mode: "none"
+trex_iommu_mode: "pt"
 
-# x86 based systems will require "on", Power based systems don't use this setting
-dut_intel_iommu_mode: on
-trex_intel_iommu_mode: on
+# x86 based systems will require "on", Power based systems ignore this setting
+dut_intel_iommu_mode: "on"
+trex_intel_iommu_mode: "on"
