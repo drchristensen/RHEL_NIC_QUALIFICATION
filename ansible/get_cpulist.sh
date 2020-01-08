@@ -22,6 +22,24 @@ function parse_range {
   eval $2=$(IFS=,;printf "%s" "${arr[*]}")
 }
 
+# Compacts an array of CPUs into a range.
+# For example, "0,1,2,3,7" becomes "0-3,7".
+# Requires two arguments:
+# $1 - The string to be compacted
+# $2 - The list of CPUs being returned
+function compact_range {
+	arr=()
+	start=""
+	for cpu in ${1//,/ }; do
+		[ -z "$start" ] && start=$cpu && range=$cpu && last=$cpu && continue
+		prev=$(( $cpu - 1 ))
+		[ "$prev" -ne "$last" ] && arr+=($range) && start=$cpu && range=$cpu && last=$cpu && continue
+		range="${start}-${cpu}" && last=$cpu
+	done
+	arr+=($range)
+  eval $2=$(IFS=,;printf "%s" "${arr[*]}")
+}
+
 dev_pci=$1
 func_name=$2
 
@@ -112,7 +130,9 @@ fi
 
 dut_isolated_cpus()
 {
-	echo $dut_isolated_cpus
+	local isolated_cpus=""
+	compact_range $dut_isolated_cpus isolated_cpus
+	echo $isolated_cpus
 }
 
 dut_dpdk_pmd_mask()
@@ -139,8 +159,10 @@ vcpu_count()
 
 vcpu_str()
 {
+	local vcpu_str=""
 	res=$(i=1; for t in ${remaining_cpus//,/ }; do printf "${t},"; if [ $i -ge $required_vcpu_count ]; then break; fi; let i++; done | sed 's/,$//')
-	echo $res
+	compact_range $res vcpu_str
+	echo $vcpu_str
 }
 
 vcpu_1()
