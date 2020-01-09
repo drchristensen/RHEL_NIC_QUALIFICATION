@@ -391,6 +391,9 @@
   - name: Binding nic {{ dut_interface_1_pciid }} to driver {{ dut_driver }}
     shell: "driverctl -v set-override {{ dut_interface_1_pciid }} {{ dut_driver }}"
     when: dut_driver != "none"
+  - name: Binding nic {{ dut_interface_2_pciid }} to driver {{ dut_driver }}
+    shell: "driverctl -v set-override {{ dut_interface_2_pciid }} {{ dut_driver }}"
+    when: dut_driver != "none"
 
 ################################
 # Starting openvswitch service #
@@ -614,7 +617,7 @@
     shell: ~/vm.sh run_cmd rhel_loopback "depmod"
     when: ansible_architecture == "ppc64le" and vm_driver == "uio_pci_generic"
   - name: Binding nic to user mode device driver on VM rhel_loopback
-    shell: ~/vm.sh run_cmd rhel_loopback "driverctl -v set-override 0000:00:02.0 {{ vm_driver }}"
+    shell: ~/vm.sh run_cmd rhel_loopback "driverctl -v set-override {{ vm_interface_2_pciid }} {{ vm_driver }}"
     when: vm_driver != "none"
   - name: Enabling tuned service on VM rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "systemctl enable tuned"
