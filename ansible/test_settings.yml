@@ -37,7 +37,7 @@ trex_interface_2_pciid: "0000:58:00.1"
 # Openvswitch package location. While you can pull this from the fast datapath
 # repository it is recommended to contact your development representative to
 # get the latest version. Then copy this to the DUT and specify its location.
-ovs_rpm_path: "http://9.114.224.56/~drc/openvswitch2.11-2.11.0-26.el8.ppc64le.rpm"
+ovs_rpm_path: "http://9.114.224.56/~drc/openvswitch2.11-2.11.0-27.el8.ppc64le.rpm"
 
 # Openvswitch selinux package location. While you can pull this from the fast
 # datapath repository it is recommended to contact your development
@@ -50,15 +50,11 @@ ovs_selinux_rpm_path: "http://9.114.224.56/~drc/openvswitch-selinux-extra-policy
 vm_isolated_cpus: 1,2,3,4,5
 
 # DUT NIC Device names and PCI addresses
-#DRC - MLX5 (NUMA node 0)
-#dut_interface_1: enp1s0f0
-#dut_interface_2: enp1s0f1
+#DRC - [ltc19-u30] MLX5 (NUMA node 0)
 #dut_interface_1_pciid: "0000:01:00.0"
 #dut_interface_2_pciid: "0000:01:00.1"
 
-#DRC - i40e (NUMA node 8)
-#dut_interface_1: enP52p1s0f0
-#dut_interface_2: enP52p1s0f1
+#DRC - [ltc19-u30] i40e (NUMA node 8)
 dut_interface_1_pciid: "0034:01:00.0"
 dut_interface_2_pciid: "0034:01:00.1"
 
@@ -69,17 +65,15 @@ dut_interface_2_pciid: "0034:01:00.1"
 # ToDo: Try and eliminate the dependency on interface names in favor of
 #       PCI addresses only.  Could use:
 #       sudo lshw -businfo -class network | grep 0034:01:00.0 | awk '{print $2}'
-vm_interface_1: eth0
-vm_interface_2: eth1
 vm_interface_1_pciid: "0000:00:01.0"
 vm_interface_2_pciid: "0000:00:02.0"
 
 # ToDo: Need description here
 tc_offload_card_type: "Unknown"
 
-# User mode driver. For most devices this will be "vfio_pci", but some NIC
+# User mode driver. For most devices this will be "vfio-pci", but some NICs
 # such as Mellanox ConnectX-5 don't require user access to hardware registers,
-# so the driver should be "none".  And in some rare cases the
+# so the driver should be "none".  And in some cases other drivers such as
 # "uio_pci_generic" driver may be required, though not officially supported
 # by Red Hat.
 # dut_driver: none

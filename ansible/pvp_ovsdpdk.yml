@@ -1,3 +1,5 @@
+# ToDo: Can't rerun script if completed successfully, OVS running blocks driverctl from completing
+#
 - name: DUT Setup for PVP OVS/DPDK Testing
   hosts: dut
   vars_files:
@@ -51,7 +53,12 @@
       src: "/usr/bin/pip3"
       dest: "/usr/bin/pip"
       state: link
-
+  - name: Stopping openvswitch service if present and running (errors ok)
+    service:
+      name: openvswitch
+      state: stopped
+    ignore_errors: true
+  
 ######################################
 # Check that nics are seen by kernel #
 ######################################
@@ -419,13 +426,13 @@
 ##############################
 
   - name: Setting up OVS-DPDK config step 1
-    shell: "ovs-vsctl set Open_vSwitch . other_config:dpdk-init=true"
+    shell: "ovs-vsctl set Open_vSwitch . other_config:dpdk-socket-mem=4096,0,0,0,0,0,0,0,4096"
   - name: Setting up OVS-DPDK config step 2
-    shell: ovs-vsctl set Open_vSwitch . other_config:dpdk-socket-mem=4096
+    shell: "ovs-vsctl set Open_vSwitch . other_config:pmd-cpu-mask={{ dut_dpdk_pmd_mask.stdout }}"
   - name: Setting up OVS-DPDK config step 3
-    shell: ovs-vsctl set Open_vSwitch . other_config:pmd-cpu-mask={{ dut_dpdk_pmd_mask.stdout }}
+    shell: "ovs-vsctl set Open_vSwitch . other_config:dpdk-lcore-mask={{ dut_dpdk_lcore_mask.stdout }}"
   - name: Setting up OVS-DPDK config step 4
-    shell: ovs-vsctl set Open_vSwitch . other_config:dpdk-lcore-mask={{ dut_dpdk_lcore_mask.stdout }}
+    shell: "ovs-vsctl set Open_vSwitch . other_config:dpdk-init=true"
   - name: Restart service openvswitch
     service:
       name: openvswitch
@@ -616,7 +623,7 @@
   - name: Injecting temporary workaround for uio_pci_generic driver failures step 2 (Power)
     shell: ~/vm.sh run_cmd rhel_loopback "depmod"
     when: ansible_architecture == "ppc64le" and vm_driver == "uio_pci_generic"
-  - name: Binding nic to user mode device driver on VM rhel_loopback
+  - name: Binding nic {{ vm_interface_1_pciid }} to driver {{ vm_driver }} on VM rhel_loopback
     shell: ~/vm.sh run_cmd rhel_loopback "driverctl -v set-override {{ vm_interface_2_pciid }} {{ vm_driver }}"
     when: vm_driver != "none"
   - name: Enabling tuned service on VM rhel_loopback
