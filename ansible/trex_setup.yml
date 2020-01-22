@@ -134,9 +134,9 @@
   - name: Check for grub configuration changes (iommu/hugepages)
     stat: path=/etc/default/grub
     register: grub_after
-  - name: Tweak the kernel for hugepages step 1
+  - name: Regenerating grub2 boot config file
     block:
-      - name: Unset current grub kernel options
+      - name: Unset current grub environment kernelopts
         command: "grub2-editenv - unset kernelopts"
       - name: Rebuild grub configuration with new defaults
         command: "grub2-mkconfig -o /boot/grub2/grub.cfg"
@@ -170,7 +170,7 @@
   - name: Running t-rex setup script (use mac mode)
     shell: python /root/trex/{{ trex_version }}/dpdk_setup_ports.py -c {{trex_interface_1}} {{trex_interface_2}} --force-mac -o /etc/trex_cfg.yaml
   - name: debug actions for t-rex setup
-    shell: cat /etc/trex-cfg.yaml
+    shell: cat /etc/trex_cfg.yaml
     register: output
   - debug:
       var: output.stdout
@@ -181,7 +181,7 @@
 ############################################
 
   - name: Getting isolated core list
-    shell: cat /etc/trex-cfg.yaml | grep threads | awk '{ print $2 }' | tr -d "[]"
+    shell: cat /etc/trex_cfg.yaml | grep threads | awk '{ print $2 }' | tr -d "[]"
     register: corelist
   - debug:
       var: corelist
@@ -241,7 +241,7 @@
       clone: yes
       dest: /root/ovs_perf
   - name: Install modules from pip
-    shell: pip install --upgrade enum34 natsort netaddr matplotlib scapy spur wheel
+    shell: pip install --upgrade enum34 natsort netaddr matplotlib scapy spur wheel numpy
   - name: Cloning git xena libraries
     git:
       repo: https://github.com/fleitner/XenaPythonLib
