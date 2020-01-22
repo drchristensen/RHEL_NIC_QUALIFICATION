@@ -59,7 +59,7 @@ then
 fi
 
 nofunc=1
-for name in dut_isolated_cpus dut_dpdk_pmd_mask dut_pmd_rxq_affinity vcpu_1 vcpu_2 vcpu_3 vcpu_4 vcpu_5 vcpu_6 vcpu_7 vcpu_8 dut_dpdk_lcore_mask vcpu_str vcpu_emulator vcpu_count
+for name in dut_isolated_cpus dut_dpdk_pmd_mask dut_pmd_rxq_affinity vcpu_0 vcpu_1 vcpu_2 vcpu_3 vcpu_4 vcpu_5 vcpu_6 vcpu_7 dut_dpdk_lcore_mask vcpu_str vcpu_emulator vcpu_count
 do
 	if [ $func_name == $name ]
 	then
@@ -165,27 +165,27 @@ vcpu_str()
 	echo $vcpu_str
 }
 
-vcpu_1()
+vcpu_0()
 {
 	echo $remaining_cpus | awk -F, '{print $1}'
 }
 
-vcpu_2()
+vcpu_1()
 {
 	echo $remaining_cpus | awk -F, '{print $2}'
 }
 
-vcpu_3()
+vcpu_2()
 {
 	echo $remaining_cpus | awk -F, '{print $3}'
 }
 
-vcpu_4()
+vcpu_3()
 {
 	echo $remaining_cpus | awk -F, '{print $4}'
 }
 
-vcpu_5()
+vcpu_4()
 {
 	if [ $threads_per_core -eq 4 ]; then
 		echo $remaining_cpus | awk -F, '{print $5}'
@@ -194,7 +194,7 @@ vcpu_5()
 	fi
 }
 
-vcpu_6()
+vcpu_5()
 {
 	if [ $threads_per_core -eq 4 ]; then
 		echo $remaining_cpus | awk -F, '{print $6}'
@@ -203,7 +203,7 @@ vcpu_6()
 	fi
 }
 
-vcpu_7()
+vcpu_6()
 {
 	if [ $threads_per_core -eq 4 ]; then
 		echo $remaining_cpus | awk -F, '{print $7}'
@@ -212,7 +212,7 @@ vcpu_7()
 	fi
 }
 
-vcpu_8()
+vcpu_7()
 {
 	if [ $threads_per_core -eq 4 ]; then
 		echo $remaining_cpus | awk -F, '{print $8}'

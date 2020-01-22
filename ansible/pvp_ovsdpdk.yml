@@ -256,6 +256,12 @@
   - debug:
       var: dut_pmd_rxq_affinity
     when: redhat_debug_mode == true
+  - name: Getting vcpu_0
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_0
+    register: vcpu_0
+  - debug:
+      var: vcpu_0
+    when: redhat_debug_mode == true
   - name: Getting vcpu_1
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_1
     register: vcpu_1
@@ -274,12 +280,13 @@
   - debug:
       var: vcpu_3
     when: redhat_debug_mode == true
-  - name: Getting vcpu_4
+  - name: Getting vcpu_4 (Power)
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_4
     register: vcpu_4
+    when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_4
-    when: redhat_debug_mode == true
+    when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
   - name: Getting vcpu_5 (Power)
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_5
     register: vcpu_5
@@ -300,13 +307,6 @@
     when: ansible_architecture == "ppc64le"
   - debug:
       var: vcpu_7
-    when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
-  - name: Getting vcpu_8 (Power)
-    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_8
-    register: vcpu_8
-    when: ansible_architecture == "ppc64le"
-  - debug:
-      var: vcpu_8
     when: ansible_architecture == "ppc64le" and redhat_debug_mode == true
   - name: Getting vcpu_count
     shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} vcpu_count
@@ -500,24 +500,24 @@
       minutes: 1
     when: ansible_architecture == "ppc64le"
   - name: Setting cpu pin for vcpu 0
-    shell: virsh vcpupin rhel_loopback 0 {{ vcpu_1.stdout }}
+    shell: virsh vcpupin rhel_loopback 0 {{ vcpu_0.stdout }}
   - name: Setting cpu pin for vcpu 1
-    shell: virsh vcpupin rhel_loopback 1 {{ vcpu_2.stdout }}
+    shell: virsh vcpupin rhel_loopback 1 {{ vcpu_1.stdout }}
   - name: Setting cpu pin for vcpu 2
-    shell: virsh vcpupin rhel_loopback 2 {{ vcpu_3.stdout }}
+    shell: virsh vcpupin rhel_loopback 2 {{ vcpu_2.stdout }}
   - name: Setting cpu pin for vcpu 3
-    shell: virsh vcpupin rhel_loopback 3 {{ vcpu_4.stdout }}
+    shell: virsh vcpupin rhel_loopback 3 {{ vcpu_3.stdout }}
   - name: Setting cpu pin for vcpu 4 (Power)
-    shell: virsh vcpupin rhel_loopback 4 {{ vcpu_5.stdout }}
+    shell: virsh vcpupin rhel_loopback 4 {{ vcpu_4.stdout }}
     when: ansible_architecture == "ppc64le"
   - name: Setting cpu pin for vcpu 5 (Power)
-    shell: virsh vcpupin rhel_loopback 5 {{ vcpu_6.stdout }}
+    shell: virsh vcpupin rhel_loopback 5 {{ vcpu_5.stdout }}
     when: ansible_architecture == "ppc64le"
   - name: Setting cpu pin for vcpu 6 (Power)
-    shell: virsh vcpupin rhel_loopback 6 {{ vcpu_7.stdout }}
+    shell: virsh vcpupin rhel_loopback 6 {{ vcpu_6.stdout }}
     when: ansible_architecture == "ppc64le"
   - name: Setting cpu pin for vcpu 7 (Power)
-    shell: virsh vcpupin rhel_loopback 7 {{ vcpu_8.stdout }}
+    shell: virsh vcpupin rhel_loopback 7 {{ vcpu_7.stdout }}
     when: ansible_architecture == "ppc64le"
   - name: Setting emulator pin for guest
     shell: virsh emulatorpin rhel_loopback {{ vcpu_emulator.stdout }}
