@@ -98,9 +98,10 @@ rhel_guest_image_path: /home/vm/images/rhel-guest-image-8.1-263.ppc64le.qcow2
 dut_cpu_model: host
 
 # Hugepage kernel command-line options for the DUT and T-Rex systems.
-# The VM is configured with 8GB of RAM, and the tests expect at least
-# two NUMA nodes, so 32GB is the recommended setting for both systems.
-dut_hugepages: 32
+# The VM is configured with 8GB of RAM, OVS/DPDK is configured with
+# 4G per NUMA node, and the tests expect at least two NUMA nodes, so
+# 32GB is the recommended setting for both systems.
+dut_hugepages: 64
 dut_hugepagesz: 1G
 dut_default_hugepagesz: 1G
 

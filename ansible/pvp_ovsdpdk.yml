@@ -101,12 +101,12 @@
 # Tweak the system for QEMU and and OVS-DPDK usage #
 ####################################################
 
-  - name: Setting SLELINUX for permissive mode step 1
+  - name: Setting SELINUX for permissive mode step 1
     lineinfile:
       path: /etc/selinux/config
       regexp: '^SELINUX='
       line: 'SELINUX=permissive'
-  - name: Setting SLELINUX for permissive mode step 2
+  - name: Setting SELINUX for permissive mode step 2
     shell: setenforce permissive
 
 #####################################################
@@ -332,6 +332,18 @@
   - debug:
       var: vcpu_emulator
     when: redhat_debug_mode == true
+  - name: Getting numa_node
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} numa_node
+    register: numa_node
+  - debug:
+      var: numa_node
+    when: redhat_debug_mode == true
+  - name: Getting driver_queues
+    shell: /root/get_cpulist.sh {{ dut_interface_1_pciid }} driver_queues
+    register: driver_queues
+  - debug:
+      var: driver_queues
+    when: redhat_debug_mode == true
 
 ##########################################
 # Tune isolated cpus based on DUT config #
@@ -352,8 +364,13 @@
     service:
       name: tuned
       enabled: yes
-  - name: Selecting tuned cpu-partitioning profile
+  - name: Selecting tuned cpu-partitioning profile (x86_64)
     shell: tuned-adm profile cpu-partitioning
+    when: ansible_architecture == "x86_64"
+  # Note: See Bugzilla XXXXXX
+  - name: Selecting tuned balanced profile (Power)
+    shell: tuned-adm profile balanced
+    when: ansible_architecture == "ppc64le"
   - name: Starting tuned service if not started
     service:
       name: tuned
@@ -401,6 +418,18 @@
   - name: Binding nic {{ dut_interface_2_pciid }} to driver {{ dut_driver }}
     shell: "driverctl -v set-override {{ dut_interface_2_pciid }} {{ dut_driver }}"
     when: dut_driver != "none"
+  - name: Copying set_maxreadreq console script to default location
+    copy:
+      src: ./set_maxreadreq.sh
+      dest: ~/set_maxreadreq.sh
+      mode: u=rwx,g=rwx,o=rwx
+  # This setting does not survive a reboot
+  - name: Tuning PCIe Max Read Request Size for {{ dut_interface_1_pciid }} (Power)
+    shell: "set_maxreadreq.sh {{ dut_interface_1_pciid }}"
+    when: ansible_architecture == "ppc64le"
+  - name: Tuning PCIe Max Read Request Size for {{ dut_interface_2_pciid }} (Power)
+    shell: "set_maxreadreq.sh {{ dut_interface_2_pciid }}"
+    when: ansible_architecture == "ppc64le"
 
 ################################
 # Starting openvswitch service #
@@ -475,27 +504,27 @@
   - debug:
       var: all_vms
     when: redhat_debug_mode == true
-  - name: Destroying rhel_loopback if its started
+  - name: Destroying rhel_loopback VM if its started
     virt:
       name: rhel_loopback
       state: destroyed
     when: '"rhel_loopback" in all_vms.list_vms'
-  - name: Undefining rhel_loopback if needed
+  - name: Undefining rhel_loopback VM if needed
     shell: virsh undefine rhel_loopback
     when: '"rhel_loopback" in all_vms.list_vms'
-  # DRC - Isn't the "cpus=0" below going to generate a warning for x86?
+    # ToDo: Doesn't the "cell0.cpus=0" generate a warning for x86? It did for Power
   - name: Running virt-install (x86_64)
-    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},+pdpe1gb,cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
+    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues={{ driver_queues.stdout }} --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},+pdpe1gb,cell0.id=0,cell0.cpus=0,cell0.memory=8388608 --numatune mode=strict,nodeset={{ numa_node.stdout }} --nographics --noautoconsole --import
     when: ansible_architecture == "x86_64"
   # DRC - Check the details here!!! Note "cpus=0-7" below.
   - name: Running virt-install (Power)
-    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues=2 --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},cell0.id=0,cell0.cpus=0-7,cell0.memory=8388608 --numatune mode=strict,nodeset=0 --nographics --noautoconsole --import
+    shell: virt-install --connect=qemu:///system --network vhostuser,source_type=unix,source_path=/tmp/vhost-sock0,source_mode=server,model=virtio,driver_queues={{ driver_queues.stdout }} --network network=default --name=rhel_loopback --disk path=/opt/images/rhel_guest_image_pvp.qcow2,format=qcow2 --ram 8192 --memorybacking hugepages=on,size=1024,unit=M,nodeset=0 --vcpus={{ vcpu_count.stdout }},cpuset={{ vcpu_str.stdout }} --check-cpu --cpu {{ dut_cpu_model }},cell0.id=0,cell0.cpus=0-7,cell0.memory=8388608 --numatune mode=strict,nodeset={{ numa_node.stdout }} --nographics --noautoconsole --import
     when: ansible_architecture == "ppc64le"
   - name: Setting permissions on vhost socket folder
     file:
       path: /tmp/vhost-sock0
       mode: u=rwx,g=rwx,o=rwx
-  - name: Pausing to allow VM to boot successfully (Power)
+  - name: Pausing to allow rhel_loopback VM to boot successfully (Power)
     pause:
       minutes: 1
     when: ansible_architecture == "ppc64le"
@@ -521,12 +550,16 @@
     when: ansible_architecture == "ppc64le"
   - name: Setting emulator pin for guest
     shell: virsh emulatorpin rhel_loopback {{ vcpu_emulator.stdout }}
+  # Pinning vcpus is a transient event, it's not written to the domain's
+  # XML configuration.  Dumping the running configuration here allows the
+  # pinned configuration to be captured and hard-coded when the XML is
+  # "imported" later with the define command.
+  - name: Dumping the rhel_loopback VM XML
+    shell: "virsh dumpxml rhel_loopback > /tmp/rhel_loopback.xml"
   - name: Shutting down the rhel_loopback VM
     virt:
       name: rhel_loopback
       state: shutdown
-  - name: Dumping the rhel_loopback VM XML
-    shell: "virsh dumpxml rhel_loopback > /tmp/rhel_loopback.xml"
   - name: Enabling shared memory in the rhel_loopback VM XML
     replace:
       dest: /tmp/rhel_loopback.xml
@@ -550,21 +583,7 @@
   - name: Injecting temporary workaround for uio_pci_generic driver failures step 1 (Power)
     shell: LIBGUESTFS_BACKEND=direct virt-customize -d rhel_loopback --mkdir /lib/modules/4.18.0-147.el8.ppc64le/updates --copy-in /home/drc/rpmbuild/BUILD/kernel-4.18.0-147.el8/linux-4.18.0-147.el8.ppc64le/drivers/uio/uio.ko:/lib/modules/4.18.0-147.el8.ppc64le/updates
     when: ansible_architecture == "ppc64le" and vm_driver == "uio_pci_generic"
-
-#####################################
-# Firstboot is deprecated in RHEL 8 #
-#####################################
-
-#    # X86_64 VMs default to PCIe platform with biosdevname, use ens[1-X]/enp[1-X]s[0-X] for NIC ifnames
-#  - name: Configuring NetworkManager in VM via firstboot (x86_64)
-#    shell: LIBGUESTFS_BACKEND=direct virt-customize -d rhel_loopback  --firstboot-command 'nmcli c | grep -o --  "[0-9a-fA-F]\{8\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{12\}" | xargs -n 1 nmcli c delete uuid' --firstboot-command 'nmcli con add con-name ovs-dpdk ifname ens2 type ethernet ip4 1.1.1.1/24' --firstboot-command 'nmcli con add con-name management ifname ens1 type ethernet' --firstboot-command 'reboot'
-#    when: ansible_architecture == "x86_64"
-#    # Power VMs default to PCI platform, use eth[0-X] for NIC ifnames
-#  - name: Configuring NetworkManager in VM via firstboot (Power)
-#    shell: LIBGUESTFS_BACKEND=direct virt-customize -d rhel_loopback --firstboot-command 'nmcli c | grep -o --  "[0-9a-fA-F]\{8\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{4\}-[0-9a-fA-F]\{12\}" | xargs -n 1 nmcli c delete uuid' --firstboot-command 'nmcli con add con-name ovs-dpdk ifname eth1 type ethernet ip4 1.1.1.1/24' --firstboot-command 'nmcli con add con-name management ifname eth0 type ethernet' --firstboot-command 'reboot'
-#    when: ansible_architecture == "ppc64le"
-
-  - name: Starting up VM rhel_loopback
+  - name: Starting up rhel_loopback VM
     virt:
       name: rhel_loopback
       state: running
@@ -577,38 +596,38 @@
       src: ./vm.sh
       dest: ~/vm.sh
       mode: u=rwx,g=rwx,o=rwx
-  - name: Logging into VM rhel_loopback
+  - name: Logging into rhel_loopback VM
     shell: ~/vm.sh login_vm rhel_loopback
     register: login_vm
-  - name: Setting up subscription manager on VM rhel_loopback step 1
+  - name: Setting up subscription manager on rhel_loopback VM step 1
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager register --username={{ rh_sub_username }} --password={{ rh_sub_pass }}"
     when: rh_sub_mode
-  - name: Setting up subscription manager on VM rhel_loopback step 2
+  - name: Setting up subscription manager on rhel_loopback VM step 2
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager attach --pool={{ rh_sub_pool_id }}"
     when: rh_sub_mode
-  - name: Using QE secret sauce to add subscription for repos on VM rhel_loopback
+  - name: Using QE secret sauce to add subscription for repos on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "{{ qe_subscription_command }}"
     when: qe_subscription_mode
-  - name: Subscribing to appstream on VM rhel_loopback
+  - name: Subscribing to appstream on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "subscription-manager repos --enable rhel-8-for-x86_64-appstream-rpms"
     when: not custom_repo_setup
-  - name: Setting up custom repos on VM rhel_loopback
+  - name: Setting up custom repos on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "curl -o /etc/yum.repos.d/custom.repo {{ custom_repo_path }}"
     when: custom_repo_setup
-  - name: Running yum commandset on VM rhel_loopback step 1
+  - name: Running yum commandset on rhel_loopback VM step 1
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y clean all"
-  - name: Running yum commandset on VM rhel_loopback step 2
+  - name: Running yum commandset on rhel_loopback VM step 2
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y update"
-  - name: Running yum commandset on VM rhel_loopback step 3
+  - name: Running yum commandset on rhel_loopback VM step 3
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y install driverctl gcc kernel-devel numactl-devel tuned-profiles-cpu-partitioning wget libibverbs dpdk"
-  - name: Running yum commandset on VM rhel_loopback step 4
+  - name: Running yum commandset on rhel_loopback VM step 4
     shell: ~/vm.sh run_cmd rhel_loopback "yum -y update kernel"
-  - name: Tuning isolcpus/hugepage setup on VM rhel_loopback (x86_64)
+  - name: Tuning isolcpus/hugepage setup on rhel_loopback VM (x86_64)
     shell: ~/vm.sh run_cmd rhel_loopback "sed -i -e 's/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"isolcpus=1,2,3 default_hugepagesz=1G hugepagesz=1G hugepages=2 /'  /etc/default/grub"
     when: ansible_architecture == "x86_64"
   # ToDo: Is this assumption right? Make it configurable in test_settings
-  - name: Tuning isolcpus/hugepage setup on VM rhel_loopback (Power)
-    shell: ~/vm.sh run_cmd rhel_loopback "sed -i -e 's/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"isolcpus=1-6 default_hugepagesz=1G hugepagesz=1G hugepages=2 /'  /etc/default/grub"
+  - name: Tuning isolcpus/hugepage setup on rhel_loopback VM (Power)
+    shell: ~/vm.sh run_cmd rhel_loopback "sed -i -e 's/GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"isolcpus=1-7 default_hugepagesz=1G hugepagesz=1G hugepages=2 /'  /etc/default/grub"
     when: ansible_architecture == "ppc64le"
   - name: Regenerating grub configuration on rhel_loopback
     block:
@@ -621,24 +640,29 @@
     when: ansible_architecture != "ppc64le" and vm_driver == "vfio-pci"
   # Temporary fix for kernel issue with uio_pci_generic (Power)
   - name: Injecting temporary workaround for uio_pci_generic driver failures step 2 (Power)
-    shell: ~/vm.sh run_cmd rhel_loopback "depmod"
+    shell: ~/vm.sh run_cmd rhel_loopback "depmod -a"
     when: ansible_architecture == "ppc64le" and vm_driver == "uio_pci_generic"
-  - name: Binding nic {{ vm_interface_1_pciid }} to driver {{ vm_driver }} on VM rhel_loopback
-    shell: ~/vm.sh run_cmd rhel_loopback "driverctl -v set-override {{ vm_interface_2_pciid }} {{ vm_driver }}"
+  # Disable SELINUX in the VM to use an unsigned kernel module (Power)
+  - name: Injecting temporary workaround for uio_pci_generic driver failures step 3 (Power)
+    shell: ~/vm.sh run_cmd rhel_loopback "sed -i 's/^SELINUX=[a-zA-Z]*$/SELINUX=disabled/' /etc/selinux/config"
+    when: ansible_architecture == "ppc64le" and vm_driver == "uio_pci_generic"
+  - name: Binding nic {{ vm_interface_1_pciid }} to driver {{ vm_driver }} on rhel_loopback VM
+    shell: ~/vm.sh run_cmd rhel_loopback "driverctl -v set-override {{ vm_interface_1_pciid }} {{ vm_driver }}"
     when: vm_driver != "none"
-  - name: Enabling tuned service on VM rhel_loopback
+  - name: Enabling tuned service on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "systemctl enable tuned"
-  - name: Starting tuned service on VM rhel_loopback
+  - name: Starting tuned service on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "systemctl start tuned"
-  - name: Setting isolated cores for CPU tuning profile on VM rhel_loopback
+  - name: Setting isolated cores for CPU tuning profile on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "echo isolated_cores={{ vm_isolated_cpus }} >> /etc/tuned/cpu-partitioning-variables.conf"
-  - name: Starting tuned profile cpu-partitioning on VM rhel_loopback
+  # Todo: Check if Power workaround required in the VM
+  - name: Starting tuned profile cpu-partitioning on rhel_loopback VM
     shell: ~/vm.sh run_cmd rhel_loopback "tuned-adm profile cpu-partitioning"
-  - name: Destroying VM rhel_loopback to activate configuration changes
+  - name: Destroying rhel_loopback VM to activate configuration changes
     virt:
       name: rhel_loopback
       state: destroyed
-  - name: Starting VM rhel_loopback to activate configuration changes
+  - name: Starting rhel_loopback VM to activate configuration changes
     virt:
       name: rhel_loopback
       state: running
@@ -646,7 +670,7 @@
     pause:
       minutes: 1
     when: ansible_architecture == "ppc64le"
-  - name: Logging into VM rhel_loopback
+  - name: Logging into rhel_loopback VM
     shell: ~/vm.sh login_vm rhel_loopback
   - name: Getting IP address from VM
     shell: ~/vm.sh run_cmd rhel_loopback "ip a | grep inet | grep brd | awk '{ print \$2 }'" | grep -A 1 "ip a \| grep inet \| grep brd"   | tail -n 1
